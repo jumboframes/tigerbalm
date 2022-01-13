@@ -30,9 +30,10 @@ func httpReq2Req(req *http.Request) (*Request, error) {
 }
 
 type Response struct {
+	Body string
 }
 
-func httpRsp2Rsp(rsp *http.Response) (*response, error) {
+func httpRsp2Rsp(rsp *http.Response) (*Response, error) {
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
 		return nil, err
