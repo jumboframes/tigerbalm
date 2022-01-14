@@ -1,10 +1,9 @@
-package capability
+package capal
 
 import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 
@@ -29,21 +28,21 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 	}
 
 	client := &http.Client{}
-	rsp, err := client.Do(req)
+	rowRsp, err := client.Do(req)
 	if err != nil {
 		log.Printf("DoRequest | client do err: %s", err)
 		return otto.NullValue()
 	}
-	defer rsp.Body.Close()
-
-	data, err := ioutil.ReadAll(rsp.Body)
+	defer rowRsp.Body.Close()
+	rsp, err := HttpRsp2Rsp(rowRsp)
 	if err != nil {
-		log.Printf("DoRequest | io read all err: %s", err)
+		log.Printf("DoRequest | http rsp to rsp err: %s", err)
 		return otto.NullValue()
 	}
-	value, err := otto.ToValue(string(data))
+
+	value, err := otto.New().ToValue(rsp)
 	if err != nil {
-		log.Printf("DoRequest | to value err: %s", err)
+		log.Printf("DoRequest | otto to value err: %s", err)
 		return otto.NullValue()
 	}
 	return value

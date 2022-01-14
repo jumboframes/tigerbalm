@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/jumboframes/tigerbalm/errors"
-	"github.com/jumboframes/tigerbalm/frame/capability"
+	"github.com/jumboframes/tigerbalm/frame/capal"
 	"github.com/robertkrimen/otto"
 )
 
@@ -38,15 +38,15 @@ func NewFrame(pluginDir string) (*Frame, error) {
 }
 
 func (frame *Frame) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	reqJS, err := httpReq2Req(req)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
 	key := req.URL.Path + req.Method
 	plugin, ok := frame.plugins[key]
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	reqJS, err := capal.HttpReq2Req(req)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	rsp, err := plugin.Handle(reqJS)
@@ -54,7 +54,8 @@ func (frame *Frame) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.Write(rsp)
+	w.WriteHeader(rsp.Status)
+	w.Write([]byte(rsp.Body))
 }
 
 func (frame *Frame) loadPlugins() error {
@@ -95,7 +96,7 @@ func (frame *Frame) loadPlugin(file string) error {
 	if err != nil {
 		return err
 	}
-	err = vm.Set("doRequest", capability.DoRequest)
+	err = vm.Set("doRequest", capal.DoRequest)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-package frame
+package capal
 
 import (
 	"io/ioutil"
@@ -14,7 +14,7 @@ type Request struct {
 	Body   string
 }
 
-func httpReq2Req(req *http.Request) (*Request, error) {
+func HttpReq2Req(req *http.Request) (*Request, error) {
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
@@ -30,16 +30,18 @@ func httpReq2Req(req *http.Request) (*Request, error) {
 }
 
 type Response struct {
-	Body string
+	Status int
+	Body   string
 }
 
-func httpRsp2Rsp(rsp *http.Response) (*Response, error) {
+func HttpRsp2Rsp(rsp *http.Response) (*Response, error) {
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
 		return nil, err
 	}
 	newRsp := &Response{
-		Body: string(body),
+		Status: rsp.StatusCode,
+		Body:   string(body),
 	}
 	return newRsp, nil
 }

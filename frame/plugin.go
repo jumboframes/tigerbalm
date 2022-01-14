@@ -1,6 +1,7 @@
 package frame
 
 import (
+	"github.com/jumboframes/tigerbalm/frame/capal"
 	"github.com/robertkrimen/otto"
 )
 
@@ -11,7 +12,7 @@ type Plugin struct {
 	Handler otto.Value
 }
 
-func (plugin *Plugin) Handle(req *Request) ([]byte, error) {
+func (plugin *Plugin) Handle(req *capal.Request) (*capal.Response, error) {
 	this, err := otto.ToValue(nil)
 	if err != nil {
 		return nil, err
@@ -20,6 +21,17 @@ func (plugin *Plugin) Handle(req *Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// status
+	statusValue, err := value.Object().Get("status")
+	if err != nil {
+		return nil, err
+	}
+	status, err := statusValue.ToInteger()
+	if err != nil {
+		return nil, err
+	}
+
+	// body
 	bodyValue, err := value.Object().Get("body")
 	if err != nil {
 		return nil, err
@@ -28,5 +40,9 @@ func (plugin *Plugin) Handle(req *Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []byte(body), nil
+	rsp := &capal.Response{
+		Status: int(status),
+		Body:   body,
+	}
+	return rsp, nil
 }
