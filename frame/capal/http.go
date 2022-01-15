@@ -11,10 +11,28 @@ import (
 )
 
 func DoRequest(call otto.FunctionCall) otto.Value {
+	// host uri method header body
+	req := *http.Request(nil)
+	argc := len(call.ArgumentList)
+	switch argc {
+	case 3:
+		host := call.ArgumentList[0].String()
+		uri := call.ArgumentList[1].String()
+		method := call.ArgumentList[2].String()
+
+	case 4:
+	case 5:
+	default:
+		return otto.NullValue()
+	}
+	if len(call.ArgumentList) < 3 {
+		return otto.NullValue()
+	}
 	host := call.ArgumentList[0].String()
 	uri := call.ArgumentList[1].String()
 	method := call.ArgumentList[2].String()
-	body := call.ArgumentList[3].String()
+	header := call.ArgumentList[3].Object()
+	body := call.ArgumentList[4].String()
 
 	url := fmt.Sprintf("http://%s%s", host, uri)
 	bodier := io.Reader(nil)
