@@ -6,21 +6,44 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/robertkrimen/otto"
 )
 
+const (
+	ProtocolHttp  = "http://"
+	ProtocolHttps = "https://"
+)
+
 func DoRequest(call otto.FunctionCall) otto.Value {
-	// host uri method header body
+	// method host uri header body
 	req := *http.Request(nil)
+	err := error(nil)
 	argc := len(call.ArgumentList)
 	switch argc {
 	case 3:
-		host := call.ArgumentList[0].String()
-		uri := call.ArgumentList[1].String()
-		method := call.ArgumentList[2].String()
+		method := call.ArgumentList[0].String()
+		host := call.ArgumentList[1].String()
+		uri := call.ArgumentList[2].String()
 
+		url := concat(ProtocolHttp, host, uri)
+		req, err = http.NewRequest(method, url, nil)
+		if err != nil {
+			return otto.NullValue()
+		}
 	case 4:
+		method := call.ArgumentList[0].String()
+		host := call.ArgumentList[1].String()
+		uri := call.ArgumentList[2].String()
+		header := call.ArgumentList[3].Object()
+
+		url := concat(ProtocolHttp, host, uri)
+		req, err = http.NewRequest(method, url, nil)
+		if err != nil {
+			return otto.NullValue()
+		}
+
 	case 5:
 	default:
 		return otto.NullValue()
@@ -64,4 +87,12 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 		return otto.NullValue()
 	}
 	return value
+}
+
+func concat(substrs ...string) string {
+	builder := new(strings.Builder)
+	for _, substr := range substrs {
+		builder.WriteString(substr)
+	}
+	return builder.String()
 }
