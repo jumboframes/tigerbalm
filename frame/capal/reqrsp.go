@@ -1,16 +1,16 @@
 package capal
 
 import (
+	"io"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 )
 
 type Request struct {
 	Method string
 	Host   string
-	URL    *url.URL
-	Header http.Header
+	Url    string
+	Header map[string]string
 	Body   string
 }
 
@@ -21,10 +21,13 @@ func HttpReq2Req(req *http.Request) (*Request, error) {
 	}
 	newReq := &Request{
 		Method: req.Method,
-		URL:    req.URL,
-		Header: req.Header,
+		Url:    req.URL.Path,
+		Header: map[string]string{},
 		Host:   req.Host,
 		Body:   string(body),
+	}
+	for k, v := range req.Header {
+		newReq.Header[k] = v[0]
 	}
 	return newReq, nil
 }
@@ -36,12 +39,17 @@ type Response struct {
 
 func HttpRsp2Rsp(rsp *http.Response) (*Response, error) {
 	body, err := ioutil.ReadAll(rsp.Body)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
+
 	newRsp := &Response{
 		Status: rsp.StatusCode,
-		Body:   string(body),
+	}
+	if body != nil {
+		newRsp.Body = string(body)
+	} else {
+		newRsp.Body = ""
 	}
 	return newRsp, nil
 }

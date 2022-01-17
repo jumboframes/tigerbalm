@@ -24,9 +24,7 @@ function handler(request) {
     body["user_ids"] = userIds;
     
     str = JSON.stringify(body);
-    console.log(str)
-    data = doRequest("192.168.111.13:4002", "/v1/users/batch", "PUT", str)
-    console.log(data)
+    data = doRequest("PUT", "192.168.111.13:4002", "/v1/users/batch", {}, str)
     return newResponse(data["Status"], data["Body"])
 }
 

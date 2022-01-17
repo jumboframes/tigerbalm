@@ -2,13 +2,12 @@ package capal
 
 import (
 	"bytes"
-	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
 	"github.com/robertkrimen/otto"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -18,9 +17,12 @@ const (
 
 func DoRequest(call otto.FunctionCall) otto.Value {
 	// method host uri header body
-	req := *http.Request(nil)
+	req := (*http.Request)(nil)
 	err := error(nil)
 	argc := len(call.ArgumentList)
+	if argc < 3 || argc > 5 {
+		return otto.NullValue()
+	}
 	switch argc {
 	case 3:
 		method := call.ArgumentList[0].String()
@@ -30,60 +32,77 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 		url := concat(ProtocolHttp, host, uri)
 		req, err = http.NewRequest(method, url, nil)
 		if err != nil {
+			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
 		}
+
 	case 4:
 		method := call.ArgumentList[0].String()
 		host := call.ArgumentList[1].String()
 		uri := call.ArgumentList[2].String()
-		header := call.ArgumentList[3].Object()
 
 		url := concat(ProtocolHttp, host, uri)
 		req, err = http.NewRequest(method, url, nil)
 		if err != nil {
+			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
+		}
+		header := call.ArgumentList[3].Object()
+		for _, key := range header.Keys() {
+			value, err := header.Get(key)
+			if err != nil {
+				continue
+			}
+			if value.IsString() {
+				req.Header.Set(key, value.String())
+			}
 		}
 
 	case 5:
-	default:
-		return otto.NullValue()
-	}
-	if len(call.ArgumentList) < 3 {
-		return otto.NullValue()
-	}
-	host := call.ArgumentList[0].String()
-	uri := call.ArgumentList[1].String()
-	method := call.ArgumentList[2].String()
-	header := call.ArgumentList[3].Object()
-	body := call.ArgumentList[4].String()
+		method := call.ArgumentList[0].String()
+		host := call.ArgumentList[1].String()
+		uri := call.ArgumentList[2].String()
+		body := call.ArgumentList[4].String()
 
-	url := fmt.Sprintf("http://%s%s", host, uri)
-	bodier := io.Reader(nil)
-	if body != "" {
-		bodier = bytes.NewBuffer([]byte(body))
-	}
-	req, err := http.NewRequest(method, url, bodier)
-	if err != nil {
-		log.Printf("DoRequest | new request err: %s", err)
-		return otto.NullValue()
+		bodier := io.Reader(nil)
+		if body != "" {
+			bodier = bytes.NewBuffer([]byte(body))
+		}
+		url := concat(ProtocolHttp, host, uri)
+		req, err = http.NewRequest(method, url, bodier)
+		if err != nil {
+			logrus.Errorf("DoRequest | http new request err: %s", err)
+			return otto.NullValue()
+		}
+		header := call.ArgumentList[3].Object()
+		for _, key := range header.Keys() {
+			value, err := header.Get(key)
+			if err != nil {
+				continue
+			}
+			if value.IsString() {
+				req.Header.Set(key, value.String())
+			}
+		}
 	}
 
 	client := &http.Client{}
 	rowRsp, err := client.Do(req)
 	if err != nil {
-		log.Printf("DoRequest | client do err: %s", err)
+		logrus.Errorf("DoRequest | client do err: %s", err)
 		return otto.NullValue()
 	}
 	defer rowRsp.Body.Close()
+
 	rsp, err := HttpRsp2Rsp(rowRsp)
 	if err != nil {
-		log.Printf("DoRequest | http rsp to rsp err: %s", err)
+		logrus.Errorf("DoRequest | http rsp to rsp err: %s", err)
 		return otto.NullValue()
 	}
 
 	value, err := otto.New().ToValue(rsp)
 	if err != nil {
-		log.Printf("DoRequest | otto to value err: %s", err)
+		logrus.Errorf("DoRequest | otto to value err: %s", err)
 		return otto.NullValue()
 	}
 	return value
