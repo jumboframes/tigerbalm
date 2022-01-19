@@ -1,9 +1,9 @@
-package capal
+package http
 
 import (
 	"io"
 	"io/ioutil"
-	"net/http"
+	nhttp "net/http"
 )
 
 type Request struct {
@@ -14,7 +14,7 @@ type Request struct {
 	Body   string
 }
 
-func HttpReq2Req(req *http.Request) (*Request, error) {
+func HttpReq2Req(req *nhttp.Request) (*Request, error) {
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ type Response struct {
 	Body   string
 }
 
-func HttpRsp2Rsp(rsp *http.Response) (*Response, error) {
+func HttpRsp2Rsp(rsp *nhttp.Response) (*Response, error) {
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil && err != io.EOF {
 		return nil, err

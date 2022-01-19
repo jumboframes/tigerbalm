@@ -1,9 +1,9 @@
-package capal
+package http
 
 import (
 	"bytes"
 	"io"
-	"net/http"
+	nhttp "net/http"
 	"strings"
 
 	"github.com/robertkrimen/otto"
@@ -17,7 +17,7 @@ const (
 
 func DoRequest(call otto.FunctionCall) otto.Value {
 	// method host uri header body
-	req := (*http.Request)(nil)
+	req := (*nhttp.Request)(nil)
 	err := error(nil)
 	argc := len(call.ArgumentList)
 	if argc < 3 || argc > 5 {
@@ -30,7 +30,7 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 		uri := call.ArgumentList[2].String()
 
 		url := concat(ProtocolHttp, host, uri)
-		req, err = http.NewRequest(method, url, nil)
+		req, err = nhttp.NewRequest(method, url, nil)
 		if err != nil {
 			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
@@ -42,7 +42,7 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 		uri := call.ArgumentList[2].String()
 
 		url := concat(ProtocolHttp, host, uri)
-		req, err = http.NewRequest(method, url, nil)
+		req, err = nhttp.NewRequest(method, url, nil)
 		if err != nil {
 			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
@@ -69,7 +69,7 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 			bodier = bytes.NewBuffer([]byte(body))
 		}
 		url := concat(ProtocolHttp, host, uri)
-		req, err = http.NewRequest(method, url, bodier)
+		req, err = nhttp.NewRequest(method, url, bodier)
 		if err != nil {
 			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
@@ -86,7 +86,7 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 		}
 	}
 
-	client := &http.Client{}
+	client := &nhttp.Client{}
 	rowRsp, err := client.Do(req)
 	if err != nil {
 		logrus.Errorf("DoRequest | client do err: %s", err)
