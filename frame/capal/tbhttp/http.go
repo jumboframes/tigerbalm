@@ -1,9 +1,11 @@
-package http
+package tbhttp
 
 import (
 	"bytes"
+	"fmt"
 	"io"
-	nhttp "net/http"
+	"net/http"
+	"net/http/httputil"
 	"strings"
 
 	"github.com/robertkrimen/otto"
@@ -16,11 +18,11 @@ const (
 )
 
 func DoRequest(call otto.FunctionCall) otto.Value {
-	// method host uri header body
-	req := (*nhttp.Request)(nil)
+	// method host uri query header body
+	req := (*http.Request)(nil)
 	err := error(nil)
 	argc := len(call.ArgumentList)
-	if argc < 3 || argc > 5 {
+	if argc < 3 || argc > 6 {
 		return otto.NullValue()
 	}
 	switch argc {
@@ -30,7 +32,7 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 		uri := call.ArgumentList[2].String()
 
 		url := concat(ProtocolHttp, host, uri)
-		req, err = nhttp.NewRequest(method, url, nil)
+		req, err = http.NewRequest(method, url, nil)
 		if err != nil {
 			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
@@ -40,14 +42,57 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 		method := call.ArgumentList[0].String()
 		host := call.ArgumentList[1].String()
 		uri := call.ArgumentList[2].String()
+		query := call.ArgumentList[3].Object()
 
-		url := concat(ProtocolHttp, host, uri)
-		req, err = nhttp.NewRequest(method, url, nil)
+		qry := ""
+		for index, key := range query.Keys() {
+			value, err := query.Get(key)
+			if err != nil {
+				continue
+			}
+			if value.IsString() {
+				if index == 0 {
+					qry += "?" + key + "=" + value.String()
+				} else {
+					qry += "&" + key + "=" + value.String()
+				}
+			}
+		}
+		url := concat(ProtocolHttp, host, uri, qry)
+		fmt.Println(url)
+		req, err = http.NewRequest(method, url, nil)
 		if err != nil {
 			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
 		}
-		header := call.ArgumentList[3].Object()
+
+	case 5:
+		method := call.ArgumentList[0].String()
+		host := call.ArgumentList[1].String()
+		uri := call.ArgumentList[2].String()
+		query := call.ArgumentList[3].Object()
+
+		qry := ""
+		for index, key := range query.Keys() {
+			value, err := query.Get(key)
+			if err != nil {
+				continue
+			}
+			if value.IsString() {
+				if index == 0 {
+					qry += "?" + key + "=" + value.String()
+				} else {
+					qry += "&" + key + "=" + value.String()
+				}
+			}
+		}
+		url := concat(ProtocolHttp, host, uri, qry)
+		req, err = http.NewRequest(method, url, nil)
+		if err != nil {
+			logrus.Errorf("DoRequest | http new request err: %s", err)
+			return otto.NullValue()
+		}
+		header := call.ArgumentList[4].Object()
 		for _, key := range header.Keys() {
 			value, err := header.Get(key)
 			if err != nil {
@@ -58,23 +103,38 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 			}
 		}
 
-	case 5:
+	case 6:
 		method := call.ArgumentList[0].String()
 		host := call.ArgumentList[1].String()
 		uri := call.ArgumentList[2].String()
-		body := call.ArgumentList[4].String()
+		query := call.ArgumentList[3].Object()
+		header := call.ArgumentList[4].Object()
+		body := call.ArgumentList[5].String()
 
+		qry := ""
+		for index, key := range query.Keys() {
+			value, err := query.Get(key)
+			if err != nil {
+				continue
+			}
+			if value.IsString() {
+				if index == 0 {
+					qry += "?" + key + "=" + value.String()
+				} else {
+					qry += "&" + key + "=" + value.String()
+				}
+			}
+		}
+		url := concat(ProtocolHttp, host, uri, qry)
 		bodier := io.Reader(nil)
 		if body != "" {
 			bodier = bytes.NewBuffer([]byte(body))
 		}
-		url := concat(ProtocolHttp, host, uri)
-		req, err = nhttp.NewRequest(method, url, bodier)
+		req, err = http.NewRequest(method, url, bodier)
 		if err != nil {
 			logrus.Errorf("DoRequest | http new request err: %s", err)
 			return otto.NullValue()
 		}
-		header := call.ArgumentList[3].Object()
 		for _, key := range header.Keys() {
 			value, err := header.Get(key)
 			if err != nil {
@@ -85,8 +145,10 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 			}
 		}
 	}
+	data, _ := httputil.DumpRequest(req, false)
+	fmt.Println(string(data))
 
-	client := &nhttp.Client{}
+	client := &http.Client{}
 	rowRsp, err := client.Do(req)
 	if err != nil {
 		logrus.Errorf("DoRequest | client do err: %s", err)

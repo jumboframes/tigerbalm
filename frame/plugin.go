@@ -1,9 +1,10 @@
 package frame
 
 import (
-	"ms_bff/errors"
-	"ms_bff/frame/capal"
 	"sync"
+
+	"github.com/jumboframes/tigerbalm/errors"
+	"github.com/jumboframes/tigerbalm/frame/capal/tbhttp"
 
 	"github.com/robertkrimen/otto"
 )
@@ -46,7 +47,7 @@ func NewPlugin(content []byte) (*Plugin, error) {
 			return nil
 		}
 		// set capability
-		err = vm.Set("doRequest", capal.DoRequest)
+		err = vm.Set("doRequest", tbhttp.DoRequest)
 		if err != nil {
 			return nil
 		}
@@ -81,7 +82,7 @@ func (plugin *Plugin) Method() string {
 	return plugin.method
 }
 
-func (plugin *Plugin) Handle(req *capal.Request) (*capal.Response, error) {
+func (plugin *Plugin) Handle(req *tbhttp.Request) (*tbhttp.Response, error) {
 	handler := plugin.pool.Get()
 	if handler == nil {
 		return nil, errors.ErrNewInterpreter
@@ -132,7 +133,7 @@ func (plugin *Plugin) Handle(req *capal.Request) (*capal.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	response := &capal.Response{
+	response := &tbhttp.Response{
 		Status: int(status),
 		Header: header,
 		Body:   body,

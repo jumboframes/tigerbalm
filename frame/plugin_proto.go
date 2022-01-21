@@ -1,7 +1,7 @@
 package frame
 
 import (
-	"ms_bff/errors"
+	"github.com/jumboframes/tigerbalm/errors"
 
 	"github.com/robertkrimen/otto"
 )

@@ -1,8 +1,7 @@
 package bus
 
 import (
-	"ms_bff/server/web"
-
+	"github.com/jumboframes/tigerbalm/web"
 	"github.com/kataras/iris/v12"
 )
 

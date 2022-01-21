@@ -6,23 +6,26 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"strings"
+	"sync"
 
-	"github.com/jumboframes/tigerbalm/errors"
-	"github.com/jumboframes/tigerbalm/frame/capal"
-	"github.com/robertkrimen/otto"
+	"github.com/fsnotify/fsnotify"
+	"github.com/jumboframes/tigerbalm/bus"
+	"github.com/jumboframes/tigerbalm/frame/capal/tbhttp"
+	"github.com/sirupsen/logrus"
 )
 
 const (
 	ExtJS = ".js"
 )
 
-const (
-	RegisterFunc = "register"
-)
-
 type Frame struct {
-	plugins   map[string]*Plugin
 	pluginDir string
+	pluginMux sync.RWMutex
+	plugins   map[string]*Plugin
+	bus       *bus.Bus
+
+	fsWatcher *fsnotify.Watcher
 }
 
 func NewFrame(pluginDir string) (*Frame, error) {
@@ -37,6 +40,38 @@ func NewFrame(pluginDir string) (*Frame, error) {
 	return frame, nil
 }
 
+func (frame *Frame) HandleHTTP(ctx *bus.Context) {
+	key := ctx.RelativePath + ctx.Method()
+	frame.pluginMux.RLock()
+	plugin, ok := frame.plugins[key]
+	if !ok {
+		ctx.ResponseWriter().WriteHeader(http.StatusNotFound)
+		frame.pluginMux.RUnlock()
+		return
+	}
+	frame.pluginMux.RUnlock()
+
+	reqJS, err := tbhttp.HttpReq2Req(ctx.Request())
+	if err != nil {
+		ctx.ResponseWriter().WriteHeader(http.StatusBadRequest)
+		return
+	}
+	rsp, err := plugin.Handle(reqJS)
+	if err != nil {
+		logrus.Errorf("Frame::HandleHTTP | plugin handle err: %s", err)
+		ctx.ResponseWriter().WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	header := ctx.ResponseWriter().Header()
+	for k, v := range rsp.Header {
+		if strings.ToLower(k) != strings.ToLower("Content-Length") {
+			header.Set(k, v)
+		}
+	}
+	ctx.ResponseWriter().WriteHeader(rsp.Status)
+	ctx.ResponseWriter().Write([]byte(rsp.Body))
+}
+
 func (frame *Frame) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	key := req.URL.Path + req.Method
 	plugin, ok := frame.plugins[key]
@@ -44,7 +79,7 @@ func (frame *Frame) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	reqJS, err := capal.HttpReq2Req(req)
+	reqJS, err := tbhttp.HttpReq2Req(req)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -80,76 +115,16 @@ func (frame *Frame) loadPlugin(file string) error {
 	if err != nil {
 		return err
 	}
-	vm := otto.New()
-	_, err = vm.Run(pluginCnt)
+
+	plugin, err := NewPlugin(pluginCnt)
 	if err != nil {
 		return err
 	}
-	routeValue, err := vm.Call(RegisterFunc, nil)
-	if err != nil {
-		return err
-	}
-	if !routeValue.IsObject() {
-		return errors.ErrIllegalRegister
-	}
-	route, err := getRoute(routeValue.Object())
-	if err != nil {
-		return err
-	}
-	err = vm.Set("doRequest", capal.DoRequest)
-	if err != nil {
-		return err
-	}
-	plugin := &Plugin{
-		Name:    file,
-		Url:     route.url,
-		Method:  route.method,
-		Handler: route.handler,
-	}
-	frame.plugins[route.url+route.method] = plugin
+	frame.pluginMux.Lock()
+	frame.plugins[plugin.Url()+plugin.Method()] = plugin
+	frame.pluginMux.Unlock()
+	frame.bus.RegisterHttp(plugin.Method(), plugin.Url(), frame.HandleHTTP)
 	return nil
-}
-
-type route struct {
-	url, method string
-	handler     otto.Value
-}
-
-func getRoute(obj *otto.Object) (*route, error) {
-	matchValue, err := obj.Get("match")
-	if err != nil {
-		return nil, err
-	}
-	urlValue, err := matchValue.Object().Get("url")
-	if err != nil {
-		return nil, err
-	}
-	url, err := urlValue.ToString()
-	if err != nil {
-		return nil, err
-	}
-	methodValue, err := matchValue.Object().Get("method")
-	if err != nil {
-		return nil, err
-	}
-	method, err := methodValue.ToString()
-	if err != nil {
-		return nil, err
-	}
-
-	handler, err := obj.Get("handler")
-	if err != nil {
-		return nil, err
-	}
-	if !handler.IsFunction() {
-		return nil, errors.ErrRegisterNotFunction
-	}
-	route := &route{
-		url:     url,
-		method:  method,
-		handler: handler,
-	}
-	return route, nil
 }
 
 func readPlugin(dir, file string) ([]byte, error) {
