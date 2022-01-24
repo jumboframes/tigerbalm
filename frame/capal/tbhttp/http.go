@@ -17,6 +17,12 @@ const (
 	ProtocolHttps = "https://"
 )
 
+type TbHttp struct{}
+
+func (tbhttp *TbHttp) DoRequest(call otto.FunctionCall) otto.Value {
+	return DoRequest(call)
+}
+
 func DoRequest(call otto.FunctionCall) otto.Value {
 	// method host uri query header body
 	req := (*http.Request)(nil)
@@ -156,7 +162,7 @@ func DoRequest(call otto.FunctionCall) otto.Value {
 	}
 	defer rowRsp.Body.Close()
 
-	rsp, err := HttpRsp2Rsp(rowRsp)
+	rsp, err := HttpRsp2TbRsp(rowRsp)
 	if err != nil {
 		logrus.Errorf("DoRequest | http rsp to rsp err: %s", err)
 		return otto.NullValue()

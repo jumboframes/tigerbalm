@@ -4,6 +4,8 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+
+	"github.com/robertkrimen/otto"
 )
 
 type Request struct {
@@ -15,12 +17,12 @@ type Request struct {
 	Body   string
 }
 
-func HttpReq2Req(req *http.Request) (*Request, error) {
+func HttpReq2TbReq(req *http.Request) (*Request, error) {
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
 	}
-	newReq := &Request{
+	tbReq := &Request{
 		Method: req.Method,
 		Url:    req.URL.Path,
 		Query:  map[string]string{},
@@ -29,12 +31,12 @@ func HttpReq2Req(req *http.Request) (*Request, error) {
 		Body:   string(body),
 	}
 	for k, v := range req.Header {
-		newReq.Header[k] = v[0]
+		tbReq.Header[k] = v[0]
 	}
 	for k, v := range req.URL.Query() {
-		newReq.Query[k] = v[0]
+		tbReq.Query[k] = v[0]
 	}
-	return newReq, nil
+	return tbReq, nil
 }
 
 type Response struct {
@@ -43,23 +45,80 @@ type Response struct {
 	Body   string
 }
 
-func HttpRsp2Rsp(rsp *http.Response) (*Response, error) {
+func HttpRsp2TbRsp(rsp *http.Response) (*Response, error) {
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
-	newRsp := &Response{
+	tbRsp := &Response{
 		Status: rsp.StatusCode,
 		Header: map[string]string{},
 	}
 	for k, v := range rsp.Header {
-		newRsp.Header[k] = v[0]
+		tbRsp.Header[k] = v[0]
 	}
 	if body != nil {
-		newRsp.Body = string(body)
+		tbRsp.Body = string(body)
 	} else {
-		newRsp.Body = ""
+		tbRsp.Body = ""
 	}
-	return newRsp, nil
+	return tbRsp, nil
+}
+
+/*
+{
+	"status": 200,
+	"header": {
+		"X-REAL-IP": ["192.168.180.56"]
+	},
+	"body": "{'foo': "bar"}"
+}
+*/
+func OttoValue2TbRsp(rsp otto.Value) (*Response, error) {
+	// status
+	status := http.StatusOK
+	value, err := rsp.Object().Get("status")
+	if err != nil {
+		return nil, err
+	}
+	if value.IsDefined() {
+		status64, err := value.ToInteger()
+		if err != nil {
+			return nil, err
+		}
+		status = int(status64)
+	}
+	// header
+	header := map[string]string{}
+	value, err = rsp.Object().Get("header")
+	if err != nil {
+		return nil, err
+	}
+	if value.IsDefined() {
+		for _, key := range value.Object().Keys() {
+			v, err := value.Object().Get(key)
+			if err != nil {
+				continue
+			}
+			elem, err := v.ToString()
+			if err != nil {
+				continue
+			}
+			header[key] = elem
+		}
+	}
+	// body
+	body := ""
+	value, err = rsp.Object().Get("body")
+	if err != nil {
+		return nil, err
+	}
+	if value.IsDefined() {
+		body, err = value.ToString()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Response{status, header, body}, nil
 }
