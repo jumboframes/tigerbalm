@@ -1,21 +1,36 @@
 package frame
 
 import (
-	"github.com/jumboframes/tigerbalm/errors"
+	"github.com/jumboframes/tigerbalm"
 
 	"github.com/robertkrimen/otto"
 )
 
 const (
 	MetaMatch   = "match"
-	MetaUrl     = "url"
+	MetaPath    = "path"
 	MetaMethod  = "method"
 	MetaHandler = "handler"
 )
 
+const (
+	FuncRegister = "register"
+	FuncRequire  = "require"
+	VarContext   = "context"
+)
+
+type context struct {
+	Name string
+}
+
+type runtime struct {
+	*route
+	vm *otto.Otto
+}
+
 type route struct {
-	url, method string
-	handler     otto.Value
+	path, method string
+	handler      otto.Value
 }
 
 func getRoute(obj *otto.Object) (*route, error) {
@@ -23,12 +38,12 @@ func getRoute(obj *otto.Object) (*route, error) {
 	if err != nil {
 		return nil, err
 	}
-	// url
-	urlValue, err := matchValue.Object().Get(MetaUrl)
+	// path
+	urlValue, err := matchValue.Object().Get(MetaPath)
 	if err != nil {
 		return nil, err
 	}
-	url, err := urlValue.ToString()
+	path, err := urlValue.ToString()
 	if err != nil {
 		return nil, err
 	}
@@ -47,10 +62,10 @@ func getRoute(obj *otto.Object) (*route, error) {
 		return nil, err
 	}
 	if !handler.IsFunction() {
-		return nil, errors.ErrRegisterNotFunction
+		return nil, tigerbalm.ErrRegisterNotFunction
 	}
 	route := &route{
-		url:     url,
+		path:    path,
 		method:  method,
 		handler: handler,
 	}

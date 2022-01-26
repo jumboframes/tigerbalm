@@ -1,11 +1,17 @@
 package tbhttp
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"io/ioutil"
 	"net/http"
 
 	"github.com/robertkrimen/otto"
+)
+
+var (
+	ErrNoMethod = errors.New("no method")
 )
 
 type Request struct {
@@ -68,9 +74,111 @@ func HttpRsp2TbRsp(rsp *http.Response) (*Response, error) {
 
 /*
 {
+	"Method": "GET",
+	"Host": "www.baidu.com",
+	"Path": "/",
+	"Query": {
+		"type": "movie",
+	},
+	"Header": {
+		"X-REAL-IP": "192.168.180.56"
+	},
+	"Body": ""
+}
+*/
+func OttoValue2HttpReq(req otto.Value) (*http.Request, error) {
+	// method
+	value, err := req.Object().Get("Method")
+	if err != nil {
+		return nil, err
+	}
+	method, err := value.ToString()
+	if err != nil {
+		return nil, err
+	}
+	// host
+	value, err = req.Object().Get("Host")
+	if err != nil {
+		return nil, err
+	}
+	host, err := value.ToString()
+	if err != nil {
+		return nil, err
+	}
+	// path
+	value, err = req.Object().Get("Path")
+	if err != nil {
+		return nil, err
+	}
+	path, err := value.ToString()
+	if err != nil {
+		return nil, err
+	}
+	url := concat(ProtoHttp, host, path)
+
+	// query
+	value, err = req.Object().Get("Query")
+	if err != nil {
+		return nil, err
+	}
+	if value.IsDefined() {
+		object := value.Object()
+		for index, key := range object.Keys() {
+			query, err := object.Get(key)
+			if err != nil {
+				continue
+			}
+			if query.IsString() {
+				if index == 0 {
+					url += "?" + key + "=" + query.String()
+				} else {
+					url += "&" + key + "=" + query.String()
+				}
+			}
+		}
+	}
+	// header
+	header := http.Header{}
+	value, err = req.Object().Get("Header")
+	if err != nil {
+		return nil, err
+	}
+	if value.IsDefined() {
+		object := value.Object()
+		for _, key := range object.Keys() {
+			hdr, err := object.Get(key)
+			if err != nil {
+				continue
+			}
+			if hdr.IsString() {
+				header.Set(key, hdr.String())
+			}
+		}
+	}
+	// body
+	body := io.Reader(nil)
+	value, err = req.Object().Get("Body")
+	if err != nil {
+		return nil, err
+	}
+	if value.IsDefined() {
+		body = bytes.NewBuffer([]byte(value.String()))
+	}
+
+	// request
+	httpReq, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header = header
+	return httpReq, nil
+}
+
+/*
+{
 	"status": 200,
 	"header": {
-		"X-REAL-IP": ["192.168.180.56"]
+		"Content-Type": "text/json"
 	},
 	"body": "{'foo': "bar"}"
 }
@@ -78,7 +186,7 @@ func HttpRsp2TbRsp(rsp *http.Response) (*Response, error) {
 func OttoValue2TbRsp(rsp otto.Value) (*Response, error) {
 	// status
 	status := http.StatusOK
-	value, err := rsp.Object().Get("status")
+	value, err := rsp.Object().Get("Status")
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +199,7 @@ func OttoValue2TbRsp(rsp otto.Value) (*Response, error) {
 	}
 	// header
 	header := map[string]string{}
-	value, err = rsp.Object().Get("header")
+	value, err = rsp.Object().Get("Header")
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +218,7 @@ func OttoValue2TbRsp(rsp otto.Value) (*Response, error) {
 	}
 	// body
 	body := ""
-	value, err = rsp.Object().Get("body")
+	value, err = rsp.Object().Get("Body")
 	if err != nil {
 		return nil, err
 	}
@@ -121,4 +229,8 @@ func OttoValue2TbRsp(rsp otto.Value) (*Response, error) {
 		}
 	}
 	return &Response{status, header, body}, nil
+}
+
+func TbRsp2OttoValue(rsp *Response) (otto.Value, error) {
+	return otto.New().ToValue(rsp)
 }

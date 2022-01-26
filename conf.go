@@ -27,8 +27,9 @@ type Config struct {
 	} `yaml:"default"`
 
 	Plugin struct {
-		Path string `yaml:"path"`
-		Log  struct {
+		Path      string `yaml:"path"`
+		WatchPath bool   `yaml:"watch_path"`
+		Log       struct {
 			Path     string `yaml:"path"`
 			Level    string `yaml:"level"`
 			MaxSize  int64  `yaml:"maxsize"`

@@ -1,142 +1,183 @@
 package frame
 
 import (
+	"path/filepath"
 	"sync"
 
-	"github.com/jumboframes/tigerbalm/errors"
+	"github.com/jumboframes/tigerbalm"
+	"github.com/jumboframes/tigerbalm/frame/capal"
 	"github.com/jumboframes/tigerbalm/frame/capal/tbhttp"
+	"github.com/jumboframes/tigerbalm/frame/capal/tblog"
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 
 	"github.com/robertkrimen/otto"
 )
 
-const (
-	RegisterFunc = "register"
-)
-
 type Plugin struct {
-	url    string
-	method string
+	mu sync.RWMutex
+	// metas
+	path    string
+	method  string
+	name    string
+	content []byte
 
-	pool           sync.Pool
-	handlerFactory func() interface{}
+	// capals
+	capal *capal.Capal
+	ctx   *capal.PluginContext
+
+	// runtimes
+	pool sync.Pool
+
+	// logs
+	log       *tblog.TbLog
+	rotateLog *rotatelogs.RotateLogs
 }
 
-func NewPlugin(content []byte) (*Plugin, error) {
-	err := error(nil)
-	url, method := "", ""
+func NewPlugin(name string, content []byte,
+	cpl *capal.Capal, config *tigerbalm.Config) (*Plugin, error) {
 
-	handlerFactory := func() interface{} {
-		vm := otto.New()
-		_, err = vm.Run(content)
-		if err != nil {
-			return nil
-		}
-		var pluginRoute otto.Value
-		pluginRoute, err = vm.Call(RegisterFunc, nil)
-		if err != nil {
-			return nil
-		}
-		if !pluginRoute.IsObject() {
-			err = errors.ErrIllegalRegister
-			return nil
-		}
-
-		var route *route
-		route, err = getRoute(pluginRoute.Object())
-		if err != nil {
-			return nil
-		}
-		// set capability
-		err = vm.Set("doRequest", tbhttp.DoRequest)
-		if err != nil {
-			return nil
-		}
-
-		url = route.url
-		method = route.method
-		return route.handler
+	plugin := &Plugin{
+		name:    name,
+		content: content,
+		capal:   cpl,
+		ctx:     &capal.PluginContext{name},
 	}
 
-	handler := handlerFactory()
+	// plugin log
+	level, err := tblog.ParseLevel(config.Plugin.Log.Level)
 	if err != nil {
+		tblog.Errorf("newplugin | tblog parse level: %s err: %s",
+			config.Plugin.Log.Level, err)
 		return nil, err
+	}
+	logFile := filepath.Join(config.Plugin.Log.Path, name, name+ExtLog)
+	rotateLog, err := rotatelogs.New(logFile,
+		rotatelogs.WithRotationCount(config.Plugin.Log.MaxRolls),
+		rotatelogs.WithRotationSize(config.Plugin.Log.MaxSize))
+	if err != nil {
+		tblog.Errorf("newplugin | rotate log: %s new err: %s",
+			logFile, err)
+		return nil, err
+	}
+	log := tblog.NewTbLog().WithLevel(level).WithOutput(rotateLog)
+
+	plugin.log = log
+	plugin.rotateLog = rotateLog
+	return plugin, nil
+}
+
+func (plugin *Plugin) Load() error {
+	// plugin runtime
+	runtime, err := plugin.vmFactory()
+	if err != nil {
+		tblog.Errorf("newplugin | get vm err: %s", err)
+		return err
 	}
 
 	pool := sync.Pool{
-		New: handlerFactory,
+		New: plugin.handlerFactory,
 	}
-	pool.Put(handler)
+	pool.Put(runtime.handler)
 
-	return &Plugin{
-		url:    url,
-		method: method,
-		pool:   pool,
-	}, nil
+	plugin.mu.Lock()
+	plugin.path = runtime.path
+	plugin.method = runtime.method
+	plugin.pool = pool
+	plugin.mu.Unlock()
+	return nil
 }
 
-func (plugin *Plugin) Url() string {
-	return plugin.url
+func (plugin *Plugin) Reload(content []byte) error {
+	plugin.mu.Lock()
+	plugin.content = content
+	plugin.mu.Unlock()
+
+	return plugin.Load()
+}
+
+func (plugin *Plugin) vmFactory() (*runtime, error) {
+	vm := otto.New()
+	err := vm.Set(VarContext, plugin.ctx)
+	if err != nil {
+		plugin.log.Errorf("vm factory set context err: %s", err)
+		return nil, err
+	}
+
+	err = vm.Set(FuncRequire, plugin.capal.Require)
+	if err != nil {
+		plugin.log.Errorf("vm factory set require err: %s", err)
+		return nil, err
+	}
+
+	plugin.mu.RLock()
+	_, err = vm.Run(plugin.content)
+	plugin.mu.RUnlock()
+	if err != nil {
+		plugin.log.Errorf("vm factory run content err: %s", err)
+		return nil, err
+	}
+
+	pr, err := vm.Call(FuncRegister, nil)
+	if err != nil {
+		plugin.log.Errorf("vm factory register err: %s", err)
+		return nil, err
+	}
+	if !pr.IsObject() {
+		plugin.log.Error(tigerbalm.ErrRegisterNotObject)
+		return nil, tigerbalm.ErrRegisterNotObject
+	}
+
+	route, err := getRoute(pr.Object())
+	if err != nil {
+		plugin.log.Errorf("vm factory get route err: %s", err)
+		return nil, err
+	}
+	return &runtime{route, vm}, nil
+}
+
+func (plugin *Plugin) handlerFactory() interface{} {
+	runtime, err := plugin.vmFactory()
+	if err != nil {
+		plugin.log.Errorf("handler factory get vm err: %s", err)
+		return nil
+	}
+	return runtime.handler
+}
+
+func (plugin *Plugin) Path() string {
+	return plugin.path
 }
 
 func (plugin *Plugin) Method() string {
 	return plugin.method
 }
 
+func (plugin *Plugin) Log() *tblog.TbLog {
+	return plugin.log
+}
+
 func (plugin *Plugin) Handle(req *tbhttp.Request) (*tbhttp.Response, error) {
+	// get runtime
 	handler := plugin.pool.Get()
 	if handler == nil {
-		return nil, errors.ErrNewInterpreter
+		plugin.log.Error("plugin get nil handler from pool")
+		return nil, tigerbalm.ErrNewInterpreter
 	}
 	this, err := otto.ToValue(nil)
 	if err != nil {
+		plugin.log.Errorf("plugin to value err: %s", err)
 		return nil, err
 	}
-	rsp, err := handler.(otto.Value).Call(this, req)
+	ottoRsp, err := handler.(otto.Value).Call(this, req)
 	if err != nil {
+		plugin.log.Errorf("plugin call err: %s", err)
 		return nil, err
 	}
 	plugin.pool.Put(handler)
-	// status
-	statusValue, err := rsp.Object().Get("status")
-	if err != nil {
-		return nil, err
-	}
-	status, err := statusValue.ToInteger()
-	if err != nil {
-		return nil, err
-	}
 
-	// header
-	headerValue, err := rsp.Object().Get("header")
-	if err != nil {
-		return nil, err
-	}
-	header := map[string]string{}
-	for _, key := range headerValue.Object().Keys() {
-		v, err := headerValue.Object().Get(key)
-		if err != nil {
-			continue
-		}
-		value, err := v.ToString()
-		if err != nil {
-			continue
-		}
-		header[key] = value
-	}
+	return tbhttp.OttoValue2TbRsp(ottoRsp)
+}
 
-	// body
-	bodyValue, err := rsp.Object().Get("body")
-	if err != nil {
-		return nil, err
-	}
-	body, err := bodyValue.ToString()
-	if err != nil {
-		return nil, err
-	}
-	response := &tbhttp.Response{
-		Status: int(status),
-		Header: header,
-		Body:   body,
-	}
-	return response, nil
+func (plugin *Plugin) Fini() {
+	plugin.rotateLog.Close()
 }

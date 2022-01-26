@@ -16,6 +16,14 @@ type Capal struct {
 	logFactory  func(ctx *PluginContext) *tblog.TbLog
 }
 
+func NewCapal(httpFactory func(ctx *PluginContext) *tbhttp.TbHttp,
+	logFactory func(ctx *PluginContext) *tblog.TbLog) *Capal {
+	return &Capal{
+		httpFactory: httpFactory,
+		logFactory:  logFactory,
+	}
+}
+
 func (capal *Capal) Require(call otto.FunctionCall) otto.Value {
 	ctx, err := getPluginContext(call)
 	if err != nil {
@@ -24,6 +32,9 @@ func (capal *Capal) Require(call otto.FunctionCall) otto.Value {
 	}
 
 	log := capal.logFactory(ctx)
+	if log == nil {
+		tblog.Errorf("require | get nil from log factory")
+	}
 	argc := len(call.ArgumentList)
 	if argc != 1 {
 		log.Errorf("require args != 1, callee: %s, line: %d",
@@ -43,7 +54,8 @@ func (capal *Capal) Require(call otto.FunctionCall) otto.Value {
 		return value
 
 	case ModuleLog:
-		value, err := otto.New().ToValue(log)
+		logOtto := tblog.NewTbLogOtto(log)
+		value, err := otto.New().ToValue(logOtto)
 		if err != nil {
 			log.Errorf("require log err: %s, callee: %s, line: %d",
 				err, call.Otto.Context().Callee, call.Otto.Context().Line)
@@ -60,7 +72,7 @@ func getPluginContext(call otto.FunctionCall) (*PluginContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	name, err := context.Object().Get("name")
+	name, err := context.Object().Get("Name")
 	if err != nil {
 		return nil, err
 	}

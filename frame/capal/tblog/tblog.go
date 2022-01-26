@@ -205,9 +205,19 @@ func (tblog *TbLog) Printf(level Level, format string, v ...interface{}) {
 	tblog.outputf(false, level, prefix, format, v...)
 }
 
+func (tblog *TbLog) Trace(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", traceS)
+	tblog.outputln(LevelTrace, prefix, v...)
+}
+
 func (tblog *TbLog) Tracef(format string, v ...interface{}) {
 	prefix := fmt.Sprintf("%-6s", traceS)
 	tblog.outputf(true, LevelTrace, prefix, format, v...)
+}
+
+func (tblog *TbLog) Debug(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", debugS)
+	tblog.outputln(LevelDebug, prefix, v...)
 }
 
 func (tblog *TbLog) Debugf(format string, v ...interface{}) {
@@ -215,9 +225,19 @@ func (tblog *TbLog) Debugf(format string, v ...interface{}) {
 	tblog.outputf(true, LevelDebug, prefix, format, v...)
 }
 
+func (tblog *TbLog) Info(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", infoS)
+	tblog.outputln(LevelInfo, prefix, v...)
+}
+
 func (tblog *TbLog) Infof(format string, v ...interface{}) {
 	prefix := fmt.Sprintf("%-6s", infoS)
 	tblog.outputf(true, LevelInfo, prefix, format, v...)
+}
+
+func (tblog *TbLog) Warn(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", warnS)
+	tblog.outputln(LevelWarn, prefix, v...)
 }
 
 func (tblog *TbLog) Warnf(format string, v ...interface{}) {
@@ -233,6 +253,11 @@ func (tblog *TbLog) Error(v ...interface{}) {
 func (tblog *TbLog) Errorf(format string, v ...interface{}) {
 	prefix := fmt.Sprintf("%-6s", errorS)
 	tblog.outputf(true, LevelError, prefix, format, v...)
+}
+
+func (tblog *TbLog) Fatal(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", fatalS)
+	tblog.outputln(LevelFatal, prefix, v...)
 }
 
 func (tblog *TbLog) Fatalf(format string, v ...interface{}) {
