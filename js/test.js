@@ -1,20 +1,29 @@
+var http = require("http")
+var log = require("log")
+
 function register() {
     var route = new Object();
     route.match = new Object();
-    route.match.url = "/foo";
+    route.match.path = "/foo";
     route.match.method = "GET";
     route.handler = handler;
     return route
 }
 
 function handler(request) {
-    data = doRequest("192.168.180.55", "/", "GET", "")
-    console.log(data)
-    return newResponse(data)
-}
+    //log.Debugf("incoming request, host: %s, url: %s, method: %s",
+    //    request["Host"], request["Url"], request["Method"])
+    log.Debugf("incoming request, host: %s, url: %s",
+        request["Host"], request["Url"])
 
-function newResponse(body) {
-    var rsp = new Object();
-    rsp.body = body;
-    return rsp;
+    req = {
+        "Method": "GET",
+        "Host": "127.0.0.1:1202",
+        "Path": "/bar",
+    }
+    data = http.DoRequest(req)
+    return {
+        "Status": 200,
+        "Body": "Austin Zhai"
+    }
 }

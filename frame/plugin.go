@@ -21,6 +21,9 @@ type Plugin struct {
 	name    string
 	content []byte
 
+	// conf
+	config *tigerbalm.Config
+
 	// capals
 	capal *capal.Capal
 	ctx   *capal.PluginContext
@@ -33,6 +36,8 @@ type Plugin struct {
 	rotateLog *rotatelogs.RotateLogs
 }
 
+// plugin uses name as runtime context indexing for looking-up resources,
+// like logging instance. the changing of name must then recreate ctx.
 func NewPlugin(name string, content []byte,
 	cpl *capal.Capal, config *tigerbalm.Config) (*Plugin, error) {
 
@@ -40,30 +45,40 @@ func NewPlugin(name string, content []byte,
 		name:    name,
 		content: content,
 		capal:   cpl,
+		config:  config,
 		ctx:     &capal.PluginContext{name},
 	}
-
-	// plugin log
-	level, err := tblog.ParseLevel(config.Plugin.Log.Level)
+	err := plugin.newLog()
 	if err != nil {
-		tblog.Errorf("newplugin | tblog parse level: %s err: %s",
-			config.Plugin.Log.Level, err)
 		return nil, err
 	}
-	logFile := filepath.Join(config.Plugin.Log.Path, name, name+ExtLog)
-	rotateLog, err := rotatelogs.New(logFile,
-		rotatelogs.WithRotationCount(config.Plugin.Log.MaxRolls),
-		rotatelogs.WithRotationSize(config.Plugin.Log.MaxSize))
+	return plugin, nil
+}
+
+func (plugin *Plugin) newLog() error {
+	if plugin.rotateLog != nil {
+		plugin.rotateLog.Close()
+	}
+	level, err := tblog.ParseLevel(plugin.config.Plugin.Log.Level)
 	if err != nil {
-		tblog.Errorf("newplugin | rotate log: %s new err: %s",
+		tblog.Errorf("newlog | tblog parse level: %s err: %s",
+			plugin.config.Plugin.Log.Level, err)
+		return err
+	}
+	logFile := filepath.Join(plugin.config.Plugin.Log.Path,
+		plugin.name, plugin.name+ExtLog)
+	rotateLog, err := rotatelogs.New(logFile,
+		rotatelogs.WithRotationCount(plugin.config.Plugin.Log.MaxRolls),
+		rotatelogs.WithRotationSize(plugin.config.Plugin.Log.MaxSize))
+	if err != nil {
+		tblog.Errorf("newplog | rotate log: %s new err: %s",
 			logFile, err)
-		return nil, err
+		return err
 	}
 	log := tblog.NewTbLog().WithLevel(level).WithOutput(rotateLog)
-
 	plugin.log = log
 	plugin.rotateLog = rotateLog
-	return plugin, nil
+	return nil
 }
 
 func (plugin *Plugin) Load() error {
@@ -87,6 +102,15 @@ func (plugin *Plugin) Load() error {
 	return nil
 }
 
+func (plugin *Plugin) Rename(name string) error {
+	plugin.mu.Lock()
+	defer plugin.mu.Unlock()
+
+	plugin.name = name
+	plugin.ctx = &capal.PluginContext{name}
+	return plugin.newLog()
+}
+
 func (plugin *Plugin) Reload(content []byte) error {
 	plugin.mu.Lock()
 	plugin.content = content
@@ -97,7 +121,9 @@ func (plugin *Plugin) Reload(content []byte) error {
 
 func (plugin *Plugin) vmFactory() (*runtime, error) {
 	vm := otto.New()
+	plugin.mu.RLock()
 	err := vm.Set(VarContext, plugin.ctx)
+	plugin.mu.RUnlock()
 	if err != nil {
 		plugin.log.Errorf("vm factory set context err: %s", err)
 		return nil, err
@@ -110,8 +136,10 @@ func (plugin *Plugin) vmFactory() (*runtime, error) {
 	}
 
 	plugin.mu.RLock()
-	_, err = vm.Run(plugin.content)
+	content := plugin.content
 	plugin.mu.RUnlock()
+	// watch out the concurrency condition in script
+	_, err = vm.Run(content)
 	if err != nil {
 		plugin.log.Errorf("vm factory run content err: %s", err)
 		return nil, err
@@ -145,14 +173,20 @@ func (plugin *Plugin) handlerFactory() interface{} {
 }
 
 func (plugin *Plugin) Path() string {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
 	return plugin.path
 }
 
 func (plugin *Plugin) Method() string {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
 	return plugin.method
 }
 
 func (plugin *Plugin) Log() *tblog.TbLog {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
 	return plugin.log
 }
 

@@ -2,9 +2,7 @@ package bus
 
 import "github.com/kataras/iris/v12"
 
-type Context struct {
+type ContextHttp struct {
 	iris.Context
 	RelativePath string
 }
-
-type ContextHandler func(ctx *Context)

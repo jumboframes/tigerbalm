@@ -28,14 +28,15 @@ type Frame struct {
 	pluginMux     sync.RWMutex
 	pluginWatcher *fsnotify.Watcher
 
-	bus   *bus.Bus
+	bus   bus.Bus
 	capal *capal.Capal
 }
 
-func NewFrame(config *tigerbalm.Config) (*Frame, error) {
+func NewFrame(bus bus.Bus, config *tigerbalm.Config) (*Frame, error) {
 	frame := &Frame{
 		pathPlugins: make(map[string]*Plugin),
 		namePlugins: make(map[string]*Plugin),
+		bus:         bus,
 		config:      config,
 	}
 	frame.capal = capal.NewCapal(frame.httpFactory, frame.logFactory)
@@ -52,6 +53,7 @@ func NewFrame(config *tigerbalm.Config) (*Frame, error) {
 		if err != nil {
 			return nil, err
 		}
+		go frame.watchPlugin()
 	}
 	return frame, nil
 }
@@ -63,14 +65,38 @@ func (frame *Frame) watchPlugin() {
 			if !ok {
 				return
 			}
+			file := filepath.Base(event.Name)
+			if !strings.HasSuffix(file, ExtJS) {
+				continue
+			}
 			if event.Op&fsnotify.Write == fsnotify.Write {
 				// modification
-			}
-			if event.Op&fsnotify.Create == fsnotify.Create {
+				err := frame.reloadPlugin(file)
+				if err != nil {
+					tblog.Errorf("frame::watchplugin | plugin: %s modified, reload err: %s",
+						file, err)
+					continue
+				}
+				tblog.Debugf("frame::watchplugin | plugin: %s reload success", file)
+			} else if event.Op&fsnotify.Create == fsnotify.Create {
 				// creation
-			}
-			if event.Op&fsnotify.Remove == fsnotify.Remove {
-				// remove
+				err := frame.loadPlugin(file)
+				if err != nil {
+					tblog.Errorf("frame::watchplugin | plugin: %s created, load err: %s",
+						file, err)
+					continue
+				}
+				tblog.Debugf("frame::watchplugin | plugin: %s load success", file)
+			} else if event.Op&fsnotify.Remove == fsnotify.Remove ||
+				event.Op&fsnotify.Rename == fsnotify.Rename {
+				// remove or rename
+				err := frame.unloadPlugin(file)
+				if err != nil {
+					tblog.Errorf("frame::watchplugin | plugin: %s removed, unload err: %s",
+						file, err)
+					continue
+				}
+				tblog.Debugf("frame::watchplugin | plugin: %s unload success", file)
 			}
 		}
 	}
@@ -85,7 +111,11 @@ func (frame *Frame) Fini() {
 	}
 }
 
-func (frame *Frame) HandleHTTP(ctx *bus.Context) {
+func (frame *Frame) handleHTTP(data interface{}) {
+	ctx, ok := data.(*bus.ContextHttp)
+	if !ok {
+		return
+	}
 	key := ctx.RelativePath + ctx.Method()
 	frame.pluginMux.RLock()
 	plugin, ok := frame.pathPlugins[key]
@@ -115,27 +145,6 @@ func (frame *Frame) HandleHTTP(ctx *bus.Context) {
 	}
 	ctx.ResponseWriter().WriteHeader(rsp.Status)
 	ctx.ResponseWriter().Write([]byte(rsp.Body))
-}
-
-func (frame *Frame) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	key := req.URL.Path + req.Method
-	plugin, ok := frame.pathPlugins[key]
-	if !ok {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	reqJS, err := tbhttp.HttpReq2TbReq(req)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	rsp, err := plugin.Handle(reqJS)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(rsp.Status)
-	w.Write([]byte(rsp.Body))
 }
 
 func (frame *Frame) httpFactory(ctx *capal.PluginContext) *tbhttp.TbHttp {
@@ -171,9 +180,16 @@ func (frame *Frame) loadPlugins() error {
 	return nil
 }
 
+func (frame *Frame) unloadPlugins() error {
+	return nil
+}
+
 func (frame *Frame) loadPlugin(file string) error {
 	name := strings.TrimSuffix(file, ExtJS)
-	pluginName := filepath.Join(frame.config.Plugin.Path, file)
+	pluginName, err := filepath.Abs(filepath.Join(frame.config.Plugin.Path, file))
+	if err != nil {
+		return err
+	}
 	pluginCnt, err := ioutil.ReadFile(pluginName)
 	if err != nil {
 		tblog.Errorf("frame::loadplugin | read plugin: %s err: %s",
@@ -197,12 +213,74 @@ func (frame *Frame) loadPlugin(file string) error {
 			pluginName, err)
 		return err
 	}
+	route := plugin.Path() + plugin.Method()
 	frame.pluginMux.Lock()
-	frame.pathPlugins[plugin.Path()+plugin.Method()] = plugin
+	frame.pathPlugins[route] = plugin
 	frame.pluginMux.Unlock()
 
 	tblog.Debugf("frame::loadplugin | new plugin: %s success, method: %s, path: %s",
-		pluginName, plugin.method, plugin.path)
-	// frame.bus.RegisterHttp(plugin.Method(), plugin.Url(), frame.HandleHTTP)
+		file, plugin.method, plugin.path)
+	if frame.bus != nil {
+		frame.bus.AddSlotHandler(bus.SlotHttp, frame.handleHTTP,
+			plugin.Method(), plugin.Path())
+	}
+	return nil
+}
+
+func (frame *Frame) unloadPlugin(file string) error {
+	name := strings.TrimSuffix(file, ExtJS)
+	frame.pluginMux.Lock()
+	defer frame.pluginMux.Unlock()
+
+	plugin, ok := frame.namePlugins[name]
+	if ok {
+		route := plugin.Path() + plugin.Method()
+		delete(frame.namePlugins, name)
+		delete(frame.pathPlugins, route)
+		if frame.bus != nil {
+			frame.bus.DelSlotHandler(bus.SlotHttp, plugin.Method(), plugin.Path())
+		}
+		plugin.Fini()
+	} else {
+		tblog.Errorf("frame::unloadplugin | unload a non-exist plugin: %s", name)
+	}
+	return nil
+}
+
+func (frame *Frame) reloadPlugin(file string) error {
+	name := strings.TrimSuffix(file, ExtJS)
+	pluginName := filepath.Join(frame.config.Plugin.Path, file)
+	pluginCnt, err := ioutil.ReadFile(pluginName)
+	if err != nil {
+		tblog.Errorf("frame::reloadplugin | read plugin: %s err: %s",
+			pluginName, err)
+		return err
+	}
+	frame.pluginMux.Lock()
+	defer frame.pluginMux.Unlock()
+
+	plugin, ok := frame.namePlugins[name]
+	if ok {
+		// del slot before reload
+		frame.pluginMux.Lock()
+		route := plugin.Path() + plugin.Method()
+		delete(frame.pathPlugins, route)
+		frame.pluginMux.Unlock()
+		if frame.bus != nil {
+			frame.bus.DelSlotHandler(bus.SlotHttp, plugin.Method(), plugin.Path())
+		}
+		err = plugin.Reload(pluginCnt)
+		if err != nil {
+			return err
+		}
+		frame.pluginMux.Lock()
+		route = plugin.Path() + plugin.Method()
+		frame.pathPlugins[route] = plugin
+		frame.pluginMux.Unlock()
+		frame.bus.AddSlotHandler(bus.SlotHttp, frame.handleHTTP,
+			plugin.Method(), plugin.Path())
+	} else {
+		tblog.Errorf("frame::unloadplugin | unload a non-exist plugin: %s", name)
+	}
 	return nil
 }

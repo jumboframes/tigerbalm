@@ -1,25 +1,55 @@
 package bus
 
 import (
-	"github.com/jumboframes/tigerbalm/web"
-	"github.com/kataras/iris/v12"
+	"sync"
+
+	"github.com/jumboframes/tigerbalm"
 )
 
-type Bus struct {
-	web *web.Web
+type Bus interface {
+	AddSlot(slot Slot)
+	AddSlotHandler(slotType SlotType, handler Handler, matches ...interface{}) error
+	DelSlotHandler(slotType SlotType, matches ...interface{}) error
 }
 
-func NewBus(web *web.Web) *Bus {
-	return &Bus{
-		web: web,
+type SlotBus struct {
+	mu    sync.RWMutex
+	slots map[SlotType]Slot
+}
+
+func NewSlotBus() *SlotBus {
+	return &SlotBus{
+		slots: make(map[SlotType]Slot),
 	}
 }
 
-func (bus *Bus) RegisterHttp(method string, url string, handler ContextHandler) {
-	bus.web.Register(method, url, func(ctx iris.Context) {
-		busCtx := &Context{
-			ctx, url,
-		}
-		handler(busCtx)
-	})
+func (bus *SlotBus) AddSlot(slot Slot) {
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
+	bus.slots[slot.Type()] = slot
+}
+
+func (bus *SlotBus) AddSlotHandler(slotType SlotType, handler Handler,
+	matches ...interface{}) error {
+	bus.mu.RLock()
+	defer bus.mu.RUnlock()
+
+	slot, ok := bus.slots[slotType]
+	if !ok {
+		return tigerbalm.ErrNoSuchSlot
+	}
+	slot.AddHandler(handler, matches...)
+	return nil
+}
+
+func (bus *SlotBus) DelSlotHandler(slotType SlotType, matches ...interface{}) error {
+	bus.mu.RLock()
+	defer bus.mu.RUnlock()
+
+	slot, ok := bus.slots[slotType]
+	if !ok {
+		return tigerbalm.ErrNoSuchSlot
+	}
+	slot.DelHandler(matches...)
+	return nil
 }
