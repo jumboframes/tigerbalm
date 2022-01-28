@@ -4,8 +4,8 @@ import (
 	"context"
 	"net"
 
+	"github.com/jumboframes/tigerbalm/frame/capal/tblog"
 	"github.com/kataras/iris/v12"
-	"github.com/sirupsen/logrus"
 )
 
 type Web struct {
@@ -20,7 +20,7 @@ func (web *Web) Serve(ctx context.Context) {
 	}()
 
 	if err := web.app.Run(iris.Listener(web.l)); err != nil {
-		logrus.Errorf("Web::Server | app quit: %s", err)
+		tblog.Errorf("web::server | app quit: %s", err)
 	}
 }
 

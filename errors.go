@@ -1,3 +1,10 @@
+/*
+ * Apache License 2.0
+ *
+ * Copyright (c) 2022, Austin Zhai (singchia1202@gmail.com)
+ * All rights reserved.
+ */
+
 package tigerbalm
 
 import (
