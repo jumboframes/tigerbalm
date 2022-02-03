@@ -22,9 +22,26 @@ var (
 )
 
 type Config struct {
-	Default struct {
+	Web struct {
 		Addr string `yaml:"addr"`
 	} `yaml:"default"`
+
+	Kafka struct {
+		Brokers  []string `yaml:"addrs"`
+		Consumer struct { //dumped from sarama
+			Group struct {
+				Session struct {
+					Timeout time.Duration `yaml:"timeout"`
+				} `yaml:"session`
+				Heartbeat struct {
+					Interval time.Duration `yaml:"interval"`
+				} `yaml:"heartbeat"`
+			} `yaml:"group"`
+			Offsets struct {
+				Initial int64 `yaml:"initial"`
+			} `yaml:"offsets"`
+		} `yaml:"consumer"`
+	} `yaml:"kafka"`
 
 	Plugin struct {
 		Path      string `yaml:"path"`
