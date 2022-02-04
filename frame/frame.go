@@ -13,6 +13,7 @@ import (
 	"github.com/jumboframes/tigerbalm/bus"
 	"github.com/jumboframes/tigerbalm/frame/capal"
 	"github.com/jumboframes/tigerbalm/frame/capal/tbhttp"
+	"github.com/jumboframes/tigerbalm/frame/capal/tbkafka"
 	"github.com/jumboframes/tigerbalm/frame/capal/tblog"
 )
 
@@ -23,8 +24,9 @@ const (
 
 type Frame struct {
 	config        *tigerbalm.Config
-	pathPlugins   map[string]*Plugin
 	namePlugins   map[string]*Plugin
+	httpPlugins   map[string]*Plugin
+	kafkaPlugins  map[string]*Plugin
 	pluginMux     sync.RWMutex
 	pluginWatcher *fsnotify.Watcher
 
@@ -34,10 +36,11 @@ type Frame struct {
 
 func NewFrame(bus bus.Bus, config *tigerbalm.Config) (*Frame, error) {
 	frame := &Frame{
-		pathPlugins: make(map[string]*Plugin),
-		namePlugins: make(map[string]*Plugin),
-		bus:         bus,
-		config:      config,
+		httpPlugins:  make(map[string]*Plugin),
+		kafkaPlugins: make(map[string]*Plugin),
+		namePlugins:  make(map[string]*Plugin),
+		bus:          bus,
+		config:       config,
 	}
 	frame.capal = capal.NewCapal(frame.httpFactory, frame.logFactory)
 	err := frame.loadPlugins()
@@ -106,45 +109,10 @@ func (frame *Frame) Fini() {
 	frame.pluginWatcher.Close()
 	frame.pluginMux.RLock()
 	defer frame.pluginMux.RUnlock()
+
 	for _, plugin := range frame.namePlugins {
 		plugin.Fini()
 	}
-}
-
-func (frame *Frame) handleHTTP(data interface{}) {
-	ctx, ok := data.(*bus.ContextHttp)
-	if !ok {
-		return
-	}
-	key := ctx.RelativePath + ctx.Method()
-	frame.pluginMux.RLock()
-	plugin, ok := frame.pathPlugins[key]
-	if !ok {
-		ctx.ResponseWriter().WriteHeader(http.StatusNotFound)
-		frame.pluginMux.RUnlock()
-		return
-	}
-	frame.pluginMux.RUnlock()
-
-	reqJS, err := tbhttp.HttpReq2TbReq(ctx.Request())
-	if err != nil {
-		ctx.ResponseWriter().WriteHeader(http.StatusBadRequest)
-		return
-	}
-	rsp, err := plugin.Handle(reqJS)
-	if err != nil {
-		tblog.Errorf("frame::handlehttp | plugin handle err: %s", err)
-		ctx.ResponseWriter().WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	header := ctx.ResponseWriter().Header()
-	for k, v := range rsp.Header {
-		if strings.ToLower(k) != strings.ToLower("Content-Length") {
-			header.Set(k, v)
-		}
-	}
-	ctx.ResponseWriter().WriteHeader(rsp.Status)
-	ctx.ResponseWriter().Write([]byte(rsp.Body))
 }
 
 func (frame *Frame) httpFactory(ctx *capal.PluginContext) *tbhttp.TbHttp {
@@ -207,22 +175,18 @@ func (frame *Frame) loadPlugin(file string) error {
 	frame.namePlugins[name] = plugin
 	frame.pluginMux.Unlock()
 
+	// load must be called after NewPlugin, since vm require log from log factory
 	err = plugin.Load()
 	if err != nil {
 		tblog.Errorf("frame::loadplugin | plugin: %s load err: %s",
 			pluginName, err)
 		return err
 	}
-	route := plugin.Path() + plugin.Method()
-	frame.pluginMux.Lock()
-	frame.pathPlugins[route] = plugin
-	frame.pluginMux.Unlock()
-
-	tblog.Debugf("frame::loadplugin | new plugin: %s success, method: %s, path: %s",
-		file, plugin.method, plugin.path)
-	if frame.bus != nil {
-		frame.bus.AddSlotHandler(bus.SlotHttp, frame.handleHTTP,
-			plugin.Method(), plugin.Path())
+	if plugin.Http() {
+		frame.registerHttp(plugin)
+	}
+	if plugin.Kafka() {
+		frame.registerKafka(plugin)
 	}
 	return nil
 }
@@ -234,13 +198,14 @@ func (frame *Frame) unloadPlugin(file string) error {
 
 	plugin, ok := frame.namePlugins[name]
 	if ok {
-		route := plugin.Path() + plugin.Method()
-		delete(frame.namePlugins, name)
-		delete(frame.pathPlugins, route)
-		if frame.bus != nil {
-			frame.bus.DelSlotHandler(bus.SlotHttp, plugin.Method(), plugin.Path())
-		}
 		plugin.Fini()
+		delete(frame.namePlugins, name)
+		if plugin.Http() {
+			frame.unregisterHttp(plugin)
+		}
+		if plugin.Kafka() {
+			frame.unregisterKafka(plugin)
+		}
 	} else {
 		tblog.Errorf("frame::unloadplugin | unload a non-exist plugin: %s", name)
 	}
@@ -262,25 +227,108 @@ func (frame *Frame) reloadPlugin(file string) error {
 	plugin, ok := frame.namePlugins[name]
 	if ok {
 		// del slot before reload
-		frame.pluginMux.Lock()
-		route := plugin.Path() + plugin.Method()
-		delete(frame.pathPlugins, route)
-		frame.pluginMux.Unlock()
-		if frame.bus != nil {
-			frame.bus.DelSlotHandler(bus.SlotHttp, plugin.Method(), plugin.Path())
+		if plugin.Http() {
+			frame.unregisterHttp(plugin)
+		}
+		if plugin.Kafka() {
+			frame.unregisterKafka(plugin)
 		}
 		err = plugin.Reload(pluginCnt)
 		if err != nil {
 			return err
 		}
-		frame.pluginMux.Lock()
-		route = plugin.Path() + plugin.Method()
-		frame.pathPlugins[route] = plugin
-		frame.pluginMux.Unlock()
-		frame.bus.AddSlotHandler(bus.SlotHttp, frame.handleHTTP,
-			plugin.Method(), plugin.Path())
+		if plugin.Http() {
+			frame.registerHttp(plugin)
+		}
+		if plugin.Kafka() {
+			frame.registerKafka(plugin)
+		}
 	} else {
 		tblog.Errorf("frame::unloadplugin | unload a non-exist plugin: %s", name)
 	}
 	return nil
+}
+
+func (frame *Frame) registerHttp(plugin *Plugin) {
+	route := plugin.HttpPath() + plugin.HttpMethod()
+	frame.httpPlugins[route] = plugin
+	if frame.bus != nil {
+		frame.bus.AddSlotHandler(bus.SlotHttp, httpHandlerFactory(plugin),
+			plugin.HttpMethod(), plugin.HttpPath())
+		tblog.Debugf("frame::unregisterhttp | plugin: %s, method: %s, path: %s",
+			plugin.Name(), plugin.HttpMethod(), plugin.HttpPath())
+	}
+}
+
+func (frame *Frame) unregisterHttp(plugin *Plugin) {
+	route := plugin.HttpPath() + plugin.HttpMethod()
+	delete(frame.httpPlugins, route)
+	if frame.bus != nil {
+		frame.bus.DelSlotHandler(bus.SlotHttp,
+			plugin.HttpMethod(), plugin.HttpPath())
+		tblog.Debugf("frame::unregisterhttp | plugin: %s, method: %s, path: %s",
+			plugin.Name(), plugin.HttpMethod(), plugin.HttpPath())
+	}
+}
+
+func (frame *Frame) registerKafka(plugin *Plugin) {
+	tp := plugin.KafkaTopic() + plugin.KafkaGroup()
+	frame.kafkaPlugins[tp] = plugin
+	if frame.bus != nil {
+		frame.bus.AddSlotHandler(bus.SlotKafka, kafkaHandlerFactory(plugin),
+			plugin.KafkaTopic(), plugin.KafkaGroup())
+		tblog.Debugf("frame::registerkafka | plugin: %s, topic: %s, group: %s",
+			plugin.Name, plugin.KafkaTopic(), plugin.KafkaGroup())
+	}
+}
+
+func (frame *Frame) unregisterKafka(plugin *Plugin) {
+	tp := plugin.KafkaTopic() + plugin.KafkaGroup()
+	delete(frame.kafkaPlugins, tp)
+	if frame.bus != nil {
+		frame.bus.DelSlotHandler(bus.SlotKafka,
+			plugin.KafkaTopic(), plugin.KafkaGroup())
+		tblog.Debugf("frame::unregisterkafka | plugin: %s, topic: %s, group: %s",
+			plugin.Name, plugin.KafkaTopic(), plugin.KafkaGroup())
+	}
+}
+
+func httpHandlerFactory(plugin *Plugin) func(data interface{}) {
+	return func(data interface{}) {
+		ctx, ok := data.(*bus.ContextHttp)
+		if !ok {
+			return
+		}
+
+		reqJS, err := tbhttp.HttpReq2TbReq(ctx.Request())
+		if err != nil {
+			ctx.ResponseWriter().WriteHeader(http.StatusBadRequest)
+			return
+		}
+		rsp, err := plugin.HttpHandle(reqJS)
+		if err != nil {
+			tblog.Errorf("frame::handlehttp | plugin handle err: %s", err)
+			ctx.ResponseWriter().WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		header := ctx.ResponseWriter().Header()
+		for k, v := range rsp.Header {
+			if strings.ToLower(k) != strings.ToLower("Content-Length") {
+				header.Set(k, v)
+			}
+		}
+		ctx.ResponseWriter().WriteHeader(rsp.Status)
+		ctx.ResponseWriter().Write([]byte(rsp.Body))
+	}
+}
+
+func kafkaHandlerFactory(plugin *Plugin) func(data interface{}) {
+	return func(data interface{}) {
+		cgmsg, ok := data.(*tbkafka.ConsumerGroupMessage)
+		if !ok {
+			return
+		}
+		tbmsg, _ := tbkafka.CGMessage2TbMessage(cgmsg)
+		plugin.KafkaHandle(tbmsg)
+	}
 }

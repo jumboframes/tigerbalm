@@ -6,11 +6,13 @@ function register() {
     route.match = new Object();
     route.match.path = "/foo";
     route.match.method = "GET";
-    route.handler = handler;
-    return route
+    route.handler = httpHandler;
+    var registration = Object();
+    registration.route = route;
+    return registration
 }
 
-function handler(request) {
+function httpHandler(request) {
     //log.Debugf("incoming request, host: %s, url: %s, method: %s",
     //    request["Host"], request["Url"], request["Method"])
     log.Debugf("incoming request, host: %s, url: %s",

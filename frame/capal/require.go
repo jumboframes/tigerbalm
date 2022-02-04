@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	ModuleHttp = "http"
-	ModuleLog  = "log"
+	ModuleHttp  = "http"
+	ModuleLog   = "log"
+	ModuleKafka = "kafka"
 )
 
 type Capal struct {
@@ -52,6 +53,8 @@ func (capal *Capal) Require(call otto.FunctionCall) otto.Value {
 			return otto.NullValue()
 		}
 		return value
+
+	case ModuleKafka:
 
 	case ModuleLog:
 		logOtto := tblog.NewTbLogOtto(log)

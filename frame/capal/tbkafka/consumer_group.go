@@ -103,11 +103,14 @@ func NewConsumerGroup(addrs []string, options ...ConsumerGroupOption) (*Consumer
 	return cg, nil
 }
 
-func (cg *ConsumerGroup) Add(topic string, group string) error {
-	_, ok := cg.tps.Load(topic)
+func (cg *ConsumerGroup) Add(topic string, group string,
+	handlers ...func(*ConsumerGroupMessage)) error {
+
+	key := topic + group
+	_, ok := cg.tps.Load(key)
 	if !ok {
-		w := newWorkerCG(cg, topic, group)
-		_, loaded := cg.tps.LoadOrStore(topic, w)
+		w := newWorkerCG(cg, topic, group, handlers...)
+		_, loaded := cg.tps.LoadOrStore(key, w)
 		if !loaded {
 			err := w.spawn()
 			if err != nil {
@@ -117,6 +120,16 @@ func (cg *ConsumerGroup) Add(topic string, group string) error {
 		return nil
 	}
 	return errors.New("topic existed")
+}
+
+func (cg *ConsumerGroup) Del(topic string, group string) error {
+	key := topic + group
+	v, ok := cg.tps.Load(key)
+	if !ok {
+		return errors.New("topic not exist")
+	}
+	v.(*workerCG).fini()
+	return nil
 }
 
 func (cg *ConsumerGroup) Output() <-chan *ConsumerGroupMessage {
@@ -135,17 +148,20 @@ func (cg *ConsumerGroup) Fini() {
 }
 
 type workerCG struct {
-	cg    *ConsumerGroup
-	csr   sarama.ConsumerGroup
-	topic string
-	group string
+	cg       *ConsumerGroup
+	csr      sarama.ConsumerGroup
+	topic    string
+	group    string
+	handlers []func(*ConsumerGroupMessage) // optional
 }
 
-func newWorkerCG(cg *ConsumerGroup, topic string, group string) *workerCG {
+func newWorkerCG(cg *ConsumerGroup, topic string, group string,
+	handlers ...func(*ConsumerGroupMessage)) *workerCG {
 	return &workerCG{
-		cg:    cg,
-		topic: topic,
-		group: group,
+		cg:       cg,
+		topic:    topic,
+		group:    group,
+		handlers: handlers,
 	}
 }
 
@@ -200,12 +216,19 @@ func (w *workerCG) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.C
 			if !ok {
 				return nil
 			}
-			w.cg.outputCh <- &ConsumerGroupMessage{
+			cgmsg := &ConsumerGroupMessage{
 				Topic:         msg.Topic,
 				Partition:     msg.Partition,
 				Offset:        msg.Offset,
 				Payload:       msg.Value,
 				ConsumerGroup: w.group,
+			}
+			if w.handlers != nil {
+				for _, handler := range w.handlers {
+					handler(cgmsg)
+				}
+			} else {
+				w.cg.outputCh <- cgmsg
 			}
 			sess.MarkMessage(msg, "synced")
 

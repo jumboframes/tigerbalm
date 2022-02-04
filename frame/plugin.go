@@ -7,6 +7,7 @@ import (
 	"github.com/jumboframes/tigerbalm"
 	"github.com/jumboframes/tigerbalm/frame/capal"
 	"github.com/jumboframes/tigerbalm/frame/capal/tbhttp"
+	"github.com/jumboframes/tigerbalm/frame/capal/tbkafka"
 	"github.com/jumboframes/tigerbalm/frame/capal/tblog"
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 
@@ -16,8 +17,14 @@ import (
 type Plugin struct {
 	mu sync.RWMutex
 	// metas
-	path    string
-	method  string
+	http       bool
+	httpPath   string
+	httpMethod string
+
+	kafka      bool
+	kafkaTopic string
+	kafkaGroup string
+
 	name    string
 	content []byte
 
@@ -29,7 +36,8 @@ type Plugin struct {
 	ctx   *capal.PluginContext
 
 	// runtimes
-	pool sync.Pool
+	httpPool  sync.Pool
+	kafkaPool sync.Pool
 
 	// logs
 	log       *tblog.TbLog
@@ -89,17 +97,37 @@ func (plugin *Plugin) Load() error {
 		return err
 	}
 
-	pool := sync.Pool{
-		New: plugin.handlerFactory,
+	httpPool := sync.Pool{
+		New: plugin.httpHandlerFactory,
 	}
-	pool.Put(runtime.handler)
+	httpPool.Put(runtime.consume.handler)
+
+	kafkaPool := sync.Pool{
+		New: plugin.kafkaHandlerFactory,
+	}
+	kafkaPool.Put(runtime.consume.handler)
 
 	plugin.mu.Lock()
-	plugin.path = runtime.path
-	plugin.method = runtime.method
-	plugin.pool = pool
+	if runtime.route != nil {
+		plugin.http = true
+		plugin.httpPath = runtime.route.path
+		plugin.httpMethod = runtime.route.method
+	}
+	if runtime.consume != nil {
+		plugin.kafka = true
+		plugin.kafkaTopic = runtime.consume.topic
+		plugin.kafkaGroup = runtime.consume.group
+	}
+	plugin.httpPool = httpPool
+	plugin.kafkaPool = kafkaPool
 	plugin.mu.Unlock()
 	return nil
+}
+
+func (plugin *Plugin) Name() string {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
+	return plugin.name
 }
 
 func (plugin *Plugin) Rename(name string) error {
@@ -155,33 +183,66 @@ func (plugin *Plugin) vmFactory() (*runtime, error) {
 		return nil, tigerbalm.ErrRegisterNotObject
 	}
 
-	route, err := getRoute(pr.Object())
+	registration, err := getRegistration(pr.Object())
 	if err != nil {
-		plugin.log.Errorf("vm factory get route err: %s", err)
+		plugin.log.Errorf("vm factory get registration err: %s", err)
 		return nil, err
 	}
-	return &runtime{route, vm}, nil
+	return &runtime{registration, vm}, nil
 }
 
-func (plugin *Plugin) handlerFactory() interface{} {
+func (plugin *Plugin) httpHandlerFactory() interface{} {
 	runtime, err := plugin.vmFactory()
 	if err != nil {
 		plugin.log.Errorf("handler factory get vm err: %s", err)
 		return nil
 	}
-	return runtime.handler
+	return runtime.route.handler
 }
 
-func (plugin *Plugin) Path() string {
-	plugin.mu.RLock()
-	defer plugin.mu.RUnlock()
-	return plugin.path
+func (plugin *Plugin) kafkaHandlerFactory() interface{} {
+	runtime, err := plugin.vmFactory()
+	if err != nil {
+		plugin.log.Errorf("handler factory get vm err: %s", err)
+		return nil
+	}
+	return runtime.consume.handler
 }
 
-func (plugin *Plugin) Method() string {
+func (plugin *Plugin) Http() bool {
 	plugin.mu.RLock()
 	defer plugin.mu.RUnlock()
-	return plugin.method
+	return plugin.http
+}
+
+func (plugin *Plugin) HttpMethod() string {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
+	return plugin.httpMethod
+}
+
+func (plugin *Plugin) HttpPath() string {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
+	return plugin.httpPath
+}
+
+func (plugin *Plugin) Kafka() bool {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
+	return plugin.kafka
+}
+
+func (plugin *Plugin) KafkaTopic() string {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
+	return plugin.kafkaTopic
+}
+
+func (plugin *Plugin) KafkaGroup() string {
+	plugin.mu.RLock()
+	defer plugin.mu.RUnlock()
+	return plugin.kafkaGroup
 }
 
 func (plugin *Plugin) Log() *tblog.TbLog {
@@ -190,9 +251,10 @@ func (plugin *Plugin) Log() *tblog.TbLog {
 	return plugin.log
 }
 
-func (plugin *Plugin) Handle(req *tbhttp.Request) (*tbhttp.Response, error) {
-	// get runtime
-	handler := plugin.pool.Get()
+func (plugin *Plugin) HttpHandle(req *tbhttp.Request) (*tbhttp.Response, error) {
+	handler := plugin.httpPool.Get()
+	defer plugin.httpPool.Put(handler)
+
 	if handler == nil {
 		plugin.log.Error("plugin get nil handler from pool")
 		return nil, tigerbalm.ErrNewInterpreter
@@ -207,9 +269,27 @@ func (plugin *Plugin) Handle(req *tbhttp.Request) (*tbhttp.Response, error) {
 		plugin.log.Errorf("plugin call err: %s", err)
 		return nil, err
 	}
-	plugin.pool.Put(handler)
 
 	return tbhttp.OttoValue2TbRsp(ottoRsp)
+}
+
+func (plugin *Plugin) KafkaHandle(msg *tbkafka.Message) {
+	handler := plugin.kafkaPool.Get()
+	defer plugin.httpPool.Put(handler)
+	if handler == nil {
+		plugin.log.Error("plugin get nil handler from pool")
+		return
+	}
+	this, err := otto.ToValue(nil)
+	if err != nil {
+		plugin.log.Errorf("plugin to value err: %s", err)
+		return
+	}
+	_, err = handler.(otto.Value).Call(this, msg)
+	if err != nil {
+		plugin.log.Errorf("plugin call err: %s", err)
+		return
+	}
 }
 
 func (plugin *Plugin) Fini() {
