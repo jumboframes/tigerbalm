@@ -8,14 +8,13 @@ import (
 )
 
 type Consumer struct {
-	*tbkafka.ConsumerGroup
+	cg       *tbkafka.ConsumerGroup
 	failedCh chan *tbkafka.ConsumerGroupMessage
 }
 
 func NewConsumer() (*Consumer, error) {
 	failedCh := make(chan *tbkafka.ConsumerGroupMessage)
-
-	tbkafka.NewConsumerGroup(tigerbalm.Conf.Kafka.Brokers,
+	cg, err := tbkafka.NewConsumerGroup(tigerbalm.Conf.Kafka.Brokers,
 		tbkafka.OptionConsumerGroupFailedCh(failedCh),
 		tbkafka.OptionConsumerGroupHeartbeatInterval(
 			tigerbalm.Conf.Kafka.Consumer.Group.Heartbeat.Interval),
@@ -23,6 +22,24 @@ func NewConsumer() (*Consumer, error) {
 			tigerbalm.Conf.Kafka.Consumer.Offsets.Initial),
 		tbkafka.OptionConsumerGroupSessionTimeout(
 			tigerbalm.Conf.Kafka.Consumer.Group.Session.Timeout))
+	if err != nil {
+		tblog.Errorf("newconsumer | new consumer group err: %s", err)
+		return nil, err
+	}
+	consumer := &Consumer{cg, failedCh}
+	go consumer.handleFailed()
+	return consumer, nil
+}
+
+func (consumer *Consumer) Fini() {
+	consumer.cg.Fini()
+	close(consumer.failedCh)
+}
+
+func (consumer *Consumer) handleFailed() {
+	for msg := range consumer.failedCh {
+		tblog.Errorf("consumer::handlefailed | err: %s", msg.Error)
+	}
 }
 
 func (consumer *Consumer) AddHandler(handler bus.Handler, matches ...interface{}) {
