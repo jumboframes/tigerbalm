@@ -3,6 +3,7 @@ package frame
 import (
 	"io/ioutil"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,19 @@ func NewFrame(bus bus.Bus, config *tigerbalm.Config) (*Frame, error) {
 		go frame.watchPlugin()
 	}
 	return frame, nil
+}
+
+func (frame *Frame) Notify(os.Signal) {
+	err := frame.unloadPlugins()
+	if err != nil {
+		tblog.Errorf("frame::notify | unload plugins err: %s", err)
+		return
+	}
+	err = frame.loadPlugins()
+	if err != nil {
+		tblog.Errorf("frame::notify | load plugins err: %s", err)
+		return
+	}
 }
 
 func (frame *Frame) watchPlugin() {
@@ -149,6 +163,19 @@ func (frame *Frame) loadPlugins() error {
 }
 
 func (frame *Frame) unloadPlugins() error {
+	frame.pluginMux.Lock()
+	defer frame.pluginMux.Unlock()
+
+	for _, plugin := range frame.namePlugins {
+		plugin.Fini()
+		delete(frame.namePlugins, plugin.Name())
+		if plugin.Http() {
+			frame.unregisterHttp(plugin)
+		}
+		if plugin.Kafka() {
+			frame.unregisterKafka(plugin)
+		}
+	}
 	return nil
 }
 

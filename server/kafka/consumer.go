@@ -54,7 +54,7 @@ func (consumer *Consumer) AddHandler(handler bus.Handler, matches ...interface{}
 	if !ok {
 		return
 	}
-	err := consumer.Add(topic, group, func(msg *tbkafka.ConsumerGroupMessage) {
+	err := consumer.cg.Add(topic, group, func(msg *tbkafka.ConsumerGroupMessage) {
 		handler(msg)
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func (consumer *Consumer) DelHandler(matches ...interface{}) {
 	if !ok {
 		return
 	}
-	err := consumer.Del(topic, group)
+	err := consumer.cg.Del(topic, group)
 	if err != nil {
 		tblog.Errorf("consumer::delhandler | consumer del err: %s", err)
 	}

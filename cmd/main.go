@@ -2,11 +2,8 @@ package main
 
 import (
 	"context"
-	"os"
-	"os/signal"
 	"syscall"
 
-	"github.com/cihub/seelog"
 	"github.com/jumboframes/tigerbalm"
 	"github.com/jumboframes/tigerbalm/bus"
 	"github.com/jumboframes/tigerbalm/frame"
@@ -54,17 +51,7 @@ func main() {
 	defer frame.Fini()
 
 	// signal
-}
-
-func HandleSignal(ctx context.Context) {
-	s := make(chan os.Signal, 1)
-	signal.Notify(s, os.Interrupt, os.Kill, syscall.SIGTERM)
-	select {
-	case sig := <-s:
-		signal.Reset()
-		seelog.Infof("main | got signal: %s", sig.String())
-
-	case <-ctx.Done():
-		seelog.Infof("main | sub routine exit")
-	}
+	sig := tigerbalm.NewSignal(tigerbalm.OptionSignalCancel(cancel))
+	sig.Add(syscall.SIGHUP, frame)
+	sig.Wait(ctx)
 }
