@@ -2,24 +2,24 @@ package tbkafka
 
 import "github.com/robertkrimen/otto"
 
-type Message struct {
-	Topic         string
-	ConsumerGroup string
-	Partition     int32
-	Offset        int64
-	Payload       string
+type CGMessage struct {
+	Topic     string
+	Group     string
+	Partition int32
+	Offset    int64
+	Payload   string
 }
 
-func CGMessage2TbMessage(cgmsg *ConsumerGroupMessage) (*Message, error) {
-	return &Message{
-		Topic:         cgmsg.Topic,
-		ConsumerGroup: cgmsg.ConsumerGroup,
-		Partition:     cgmsg.Partition,
-		Offset:        cgmsg.Offset,
-		Payload:       string(cgmsg.Payload),
+func CGMessage2TbCGMessage(cgmsg *ConsumerGroupMessage) (*CGMessage, error) {
+	return &CGMessage{
+		Topic:     cgmsg.Topic,
+		Group:     cgmsg.ConsumerGroup,
+		Partition: cgmsg.Partition,
+		Offset:    cgmsg.Offset,
+		Payload:   string(cgmsg.Payload),
 	}, nil
 }
 
-func TbMessage2OttoValue(msg *Message) (otto.Value, error) {
+func TbMessage2OttoValue(msg *CGMessage) (otto.Value, error) {
 	return otto.New().ToValue(msg)
 }
