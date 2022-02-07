@@ -13,5 +13,5 @@ require (
 	github.com/robertkrimen/otto v0.0.0-20211024170158-b87d35c0b86f
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
 	google.golang.org/appengine v1.6.7
-	gopkg.in/yaml.v2 v2.2.4
+	gopkg.in/yaml.v2 v2.2.8
 )
