@@ -93,33 +93,31 @@ func (plugin *Plugin) Load() error {
 	// plugin runtime
 	runtime, err := plugin.vmFactory()
 	if err != nil {
-		tblog.Errorf("newplugin | get vm err: %s", err)
+		tblog.Errorf("newplugin | plugin: %s, get vm err: %s",
+			plugin.name, err)
 		return err
 	}
-
-	httpPool := sync.Pool{
-		New: plugin.httpHandlerFactory,
-	}
-	httpPool.Put(runtime.consume.handler)
-
-	kafkaPool := sync.Pool{
-		New: plugin.kafkaHandlerFactory,
-	}
-	kafkaPool.Put(runtime.consume.handler)
-
 	plugin.mu.Lock()
 	if runtime.route != nil {
+		httpPool := sync.Pool{
+			New: plugin.httpHandlerFactory,
+		}
+		httpPool.Put(runtime.route.handler)
 		plugin.http = true
 		plugin.httpPath = runtime.route.path
 		plugin.httpMethod = runtime.route.method
+		plugin.httpPool = httpPool
 	}
 	if runtime.consume != nil {
+		kafkaPool := sync.Pool{
+			New: plugin.kafkaHandlerFactory,
+		}
+		kafkaPool.Put(runtime.consume.handler)
 		plugin.kafka = true
 		plugin.kafkaTopic = runtime.consume.topic
 		plugin.kafkaGroup = runtime.consume.group
+		plugin.kafkaPool = kafkaPool
 	}
-	plugin.httpPool = httpPool
-	plugin.kafkaPool = kafkaPool
 	plugin.mu.Unlock()
 	return nil
 }
@@ -194,7 +192,8 @@ func (plugin *Plugin) vmFactory() (*runtime, error) {
 func (plugin *Plugin) httpHandlerFactory() interface{} {
 	runtime, err := plugin.vmFactory()
 	if err != nil {
-		plugin.log.Errorf("handler factory get vm err: %s", err)
+		plugin.log.Errorf("plugin: %s, http handler factory get vm err: %s",
+			plugin.name, err)
 		return nil
 	}
 	return runtime.route.handler
@@ -203,7 +202,8 @@ func (plugin *Plugin) httpHandlerFactory() interface{} {
 func (plugin *Plugin) kafkaHandlerFactory() interface{} {
 	runtime, err := plugin.vmFactory()
 	if err != nil {
-		plugin.log.Errorf("handler factory get vm err: %s", err)
+		plugin.log.Errorf("plugin: %s, kafka handler factory get vm err: %s",
+			plugin.name, err)
 		return nil
 	}
 	return runtime.consume.handler
@@ -273,7 +273,7 @@ func (plugin *Plugin) HttpHandle(req *tbhttp.Request) (*tbhttp.Response, error) 
 	return tbhttp.OttoValue2TbRsp(ottoRsp)
 }
 
-func (plugin *Plugin) KafkaHandle(msg *tbkafka.Message) {
+func (plugin *Plugin) KafkaHandle(msg *tbkafka.CGMessage) {
 	handler := plugin.kafkaPool.Get()
 	defer plugin.httpPool.Put(handler)
 	if handler == nil {

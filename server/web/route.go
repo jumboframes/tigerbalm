@@ -18,7 +18,7 @@ func (web *Web) AddHandler(handler bus.Handler, matches ...interface{}) {
 		return
 	}
 	web.app.Handle(method, path, func(ctx iris.Context) {
-		handler(bus.ContextHttp{ctx, path})
+		handler(&bus.ContextHttp{ctx, path})
 	})
 	web.app.RefreshRouter()
 }

@@ -24,10 +24,10 @@ var (
 type Config struct {
 	Web struct {
 		Addr string `yaml:"addr"`
-	} `yaml:"default"`
+	} `yaml:"web"`
 
 	Kafka struct {
-		Brokers  []string `yaml:"addrs"`
+		Brokers  []string `yaml:"brokers"`
 		Consumer struct { //dumped from sarama
 			Group struct {
 				Session struct {
@@ -60,6 +60,11 @@ type Config struct {
 		MaxSize  int64  `yaml:"maxsize"`
 		MaxRolls uint   `yaml:"maxrolls"`
 	} `yaml:"log"`
+
+	Env []struct {
+		Name  string `yaml:"name"`
+		Value string `yaml:"value"`
+	} `yaml:"env"`
 }
 
 func Init() error {

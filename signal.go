@@ -75,7 +75,7 @@ func (sig *Signal) Wait(ctx context.Context) {
 	for {
 		select {
 		case sg := <-sig.sgCh:
-			tblog.Infof("wait | got signal: %s", sg.String())
+			tblog.Infof("signal::wait | got signal: %s", sg.String())
 			for _, reserved := range ReservedFiniSignals {
 				// only call once, the second signal will be handled by os
 				if sg == reserved {
@@ -96,10 +96,10 @@ func (sig *Signal) Wait(ctx context.Context) {
 			}
 
 		case <-ctx.Done():
-			tblog.Infof("wait | ctx done")
+			tblog.Infof("signal::wait | ctx done")
 			goto QUIT
 		}
 	}
 QUIT:
-	tblog.Infof("wait | quit")
+	tblog.Infof("signal::wait | quit")
 }

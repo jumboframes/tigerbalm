@@ -32,7 +32,11 @@ func (web *Web) Serve(ctx context.Context) {
 	}()
 
 	if err := web.app.Run(iris.Listener(web.l)); err != nil {
-		tblog.Errorf("web::server | app quit: %s", err)
+		if err == iris.ErrServerClosed {
+			tblog.Info("web::server | app quit")
+		} else {
+			tblog.Errorf("web::server | app quit: %s", err)
+		}
 	}
 }
 

@@ -1,15 +1,18 @@
 package capal
 
 import (
+	"github.com/jumboframes/tigerbalm/frame/capal/tbenv"
 	"github.com/jumboframes/tigerbalm/frame/capal/tbhttp"
+	"github.com/jumboframes/tigerbalm/frame/capal/tbkafka"
 	"github.com/jumboframes/tigerbalm/frame/capal/tblog"
 	"github.com/robertkrimen/otto"
 )
 
 const (
-	ModuleHttp  = "http"
-	ModuleLog   = "log"
-	ModuleKafka = "kafka"
+	ModuleHttp     = "http"
+	ModuleLog      = "log"
+	ModuleProducer = "producer"
+	ModuleEnv      = "env"
 )
 
 type Capal struct {
@@ -54,13 +57,36 @@ func (capal *Capal) Require(call otto.FunctionCall) otto.Value {
 		}
 		return value
 
-	case ModuleKafka:
+	case ModuleProducer:
+		producer, err := tbkafka.NewTbProducer()
+		if err != nil {
+			log.Errorf("require producer err: %s, callee: %s, line: %d",
+				err, call.Otto.Context().Callee, call.Otto.Context().Line)
+			return otto.NullValue()
+		}
+		value, err := otto.New().ToValue(producer)
+		if err != nil {
+			log.Errorf("producer to js err: %s, callee: %s, line: %d",
+				err, call.Otto.Context().Callee, call.Otto.Context().Line)
+			return otto.NullValue()
+		}
+		return value
 
 	case ModuleLog:
 		logOtto := tblog.NewTbLogOtto(log)
 		value, err := otto.New().ToValue(logOtto)
 		if err != nil {
 			log.Errorf("require log err: %s, callee: %s, line: %d",
+				err, call.Otto.Context().Callee, call.Otto.Context().Line)
+			return otto.NullValue()
+		}
+		return value
+
+	case ModuleEnv:
+		env := &tbenv.TbEnv{}
+		value, err := otto.New().ToValue(env)
+		if err != nil {
+			log.Errorf("require env err: %s, callee: %s, line: %d",
 				err, call.Otto.Context().Callee, call.Otto.Context().Line)
 			return otto.NullValue()
 		}

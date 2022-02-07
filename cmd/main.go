@@ -20,6 +20,11 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.TODO())
 
+	tblog.Infof(`
+==================================================
+                 TigerBalm Starts
+==================================================`)
+
 	// web
 	web, err := web.NewWeb()
 	if err != nil {

@@ -116,9 +116,19 @@ func Printf(level Level, format string, v ...interface{}) {
 	DefaultLog.outputf(false, level, prefix, format, v...)
 }
 
+func Trace(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", traceS)
+	DefaultLog.outputln(LevelTrace, prefix, v...)
+}
+
 func Tracef(format string, v ...interface{}) {
 	prefix := fmt.Sprintf("%-6s", traceS)
 	DefaultLog.outputf(true, LevelTrace, prefix, format, v...)
+}
+
+func Debug(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", debugS)
+	DefaultLog.outputln(LevelDebug, prefix, v...)
 }
 
 func Debugf(format string, v ...interface{}) {
@@ -126,9 +136,19 @@ func Debugf(format string, v ...interface{}) {
 	DefaultLog.outputf(true, LevelDebug, prefix, format, v...)
 }
 
+func Info(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", infoS)
+	DefaultLog.outputln(LevelInfo, prefix, v...)
+}
+
 func Infof(format string, v ...interface{}) {
 	prefix := fmt.Sprintf("%-6s", infoS)
 	DefaultLog.outputf(true, LevelInfo, prefix, format, v...)
+}
+
+func Warn(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", warnS)
+	DefaultLog.outputln(LevelWarn, prefix, v...)
 }
 
 func Warnf(format string, v ...interface{}) {
@@ -144,6 +164,11 @@ func Error(v ...interface{}) {
 func Errorf(format string, v ...interface{}) {
 	prefix := fmt.Sprintf("%-6s", errorS)
 	DefaultLog.outputf(true, LevelError, prefix, format, v...)
+}
+
+func Fatal(v ...interface{}) {
+	prefix := fmt.Sprintf("%-6s", fatalS)
+	DefaultLog.outputln(LevelFatal, prefix, v...)
 }
 
 func Fatalf(format string, v ...interface{}) {

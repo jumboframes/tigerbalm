@@ -2,18 +2,19 @@ web:
   addr: 127.0.0.1:1202
 
 kafka:
-  brokers: 192.168.111.103:9092
+  brokers:
+    - 192.168.111.103:9092
   consumer:
     group:
       session:
-        timeout: 30000
+        timeout: 30
       heartbeat:
-        interval: 10
+        interval: 9
     offsets:
       initial: -2
 
 plugin:
-  plugin_path: ../js
+  path: ./js
   watch_path: false
   log:
     path: "/tmp/tigerbalm/log/plugin"
@@ -26,3 +27,7 @@ log:
   maxsize: 10485760
   level: "debug"
   file: "/tmp/tigerbalm/log/tigerbalm.log"
+
+env:
+  - name: BAIDU
+    value: www.baidu.com

@@ -120,12 +120,16 @@ func (frame *Frame) watchPlugin() {
 }
 
 func (frame *Frame) Fini() {
-	frame.pluginWatcher.Close()
+	if frame.config.Plugin.WatchPath {
+		frame.pluginWatcher.Close()
+	}
 	frame.pluginMux.RLock()
 	defer frame.pluginMux.RUnlock()
 
 	for _, plugin := range frame.namePlugins {
 		plugin.Fini()
+		frame.unregisterHttp(plugin)
+		frame.unregisterKafka(plugin)
 	}
 }
 
@@ -169,12 +173,8 @@ func (frame *Frame) unloadPlugins() error {
 	for _, plugin := range frame.namePlugins {
 		plugin.Fini()
 		delete(frame.namePlugins, plugin.Name())
-		if plugin.Http() {
-			frame.unregisterHttp(plugin)
-		}
-		if plugin.Kafka() {
-			frame.unregisterKafka(plugin)
-		}
+		frame.unregisterHttp(plugin)
+		frame.unregisterKafka(plugin)
 	}
 	return nil
 }
@@ -209,12 +209,8 @@ func (frame *Frame) loadPlugin(file string) error {
 			pluginName, err)
 		return err
 	}
-	if plugin.Http() {
-		frame.registerHttp(plugin)
-	}
-	if plugin.Kafka() {
-		frame.registerKafka(plugin)
-	}
+	frame.registerHttp(plugin)
+	frame.registerKafka(plugin)
 	return nil
 }
 
@@ -227,12 +223,8 @@ func (frame *Frame) unloadPlugin(file string) error {
 	if ok {
 		plugin.Fini()
 		delete(frame.namePlugins, name)
-		if plugin.Http() {
-			frame.unregisterHttp(plugin)
-		}
-		if plugin.Kafka() {
-			frame.unregisterKafka(plugin)
-		}
+		frame.unregisterHttp(plugin)
+		frame.unregisterKafka(plugin)
 	} else {
 		tblog.Errorf("frame::unloadplugin | unload a non-exist plugin: %s", name)
 	}
@@ -254,22 +246,14 @@ func (frame *Frame) reloadPlugin(file string) error {
 	plugin, ok := frame.namePlugins[name]
 	if ok {
 		// del slot before reload
-		if plugin.Http() {
-			frame.unregisterHttp(plugin)
-		}
-		if plugin.Kafka() {
-			frame.unregisterKafka(plugin)
-		}
+		frame.unregisterHttp(plugin)
+		frame.unregisterKafka(plugin)
 		err = plugin.Reload(pluginCnt)
 		if err != nil {
 			return err
 		}
-		if plugin.Http() {
-			frame.registerHttp(plugin)
-		}
-		if plugin.Kafka() {
-			frame.registerKafka(plugin)
-		}
+		frame.registerHttp(plugin)
+		frame.registerKafka(plugin)
 	} else {
 		tblog.Errorf("frame::unloadplugin | unload a non-exist plugin: %s", name)
 	}
@@ -277,17 +261,23 @@ func (frame *Frame) reloadPlugin(file string) error {
 }
 
 func (frame *Frame) registerHttp(plugin *Plugin) {
+	if !plugin.Http() {
+		return
+	}
 	route := plugin.HttpPath() + plugin.HttpMethod()
 	frame.httpPlugins[route] = plugin
 	if frame.bus != nil {
 		frame.bus.AddSlotHandler(bus.SlotHttp, httpHandlerFactory(plugin),
 			plugin.HttpMethod(), plugin.HttpPath())
-		tblog.Debugf("frame::unregisterhttp | plugin: %s, method: %s, path: %s",
+		tblog.Debugf("frame::registerhttp | plugin: %s, method: %s, path: %s",
 			plugin.Name(), plugin.HttpMethod(), plugin.HttpPath())
 	}
 }
 
 func (frame *Frame) unregisterHttp(plugin *Plugin) {
+	if !plugin.Http() {
+		return
+	}
 	route := plugin.HttpPath() + plugin.HttpMethod()
 	delete(frame.httpPlugins, route)
 	if frame.bus != nil {
@@ -299,24 +289,30 @@ func (frame *Frame) unregisterHttp(plugin *Plugin) {
 }
 
 func (frame *Frame) registerKafka(plugin *Plugin) {
+	if !plugin.Kafka() {
+		return
+	}
 	tp := plugin.KafkaTopic() + plugin.KafkaGroup()
 	frame.kafkaPlugins[tp] = plugin
 	if frame.bus != nil {
 		frame.bus.AddSlotHandler(bus.SlotKafka, kafkaHandlerFactory(plugin),
 			plugin.KafkaTopic(), plugin.KafkaGroup())
 		tblog.Debugf("frame::registerkafka | plugin: %s, topic: %s, group: %s",
-			plugin.Name, plugin.KafkaTopic(), plugin.KafkaGroup())
+			plugin.Name(), plugin.KafkaTopic(), plugin.KafkaGroup())
 	}
 }
 
 func (frame *Frame) unregisterKafka(plugin *Plugin) {
+	if !plugin.Kafka() {
+		return
+	}
 	tp := plugin.KafkaTopic() + plugin.KafkaGroup()
 	delete(frame.kafkaPlugins, tp)
 	if frame.bus != nil {
 		frame.bus.DelSlotHandler(bus.SlotKafka,
 			plugin.KafkaTopic(), plugin.KafkaGroup())
 		tblog.Debugf("frame::unregisterkafka | plugin: %s, topic: %s, group: %s",
-			plugin.Name, plugin.KafkaTopic(), plugin.KafkaGroup())
+			plugin.Name(), plugin.KafkaTopic(), plugin.KafkaGroup())
 	}
 }
 
@@ -355,7 +351,7 @@ func kafkaHandlerFactory(plugin *Plugin) func(data interface{}) {
 		if !ok {
 			return
 		}
-		tbmsg, _ := tbkafka.CGMessage2TbMessage(cgmsg)
+		tbmsg, _ := tbkafka.CGMessage2TbCGMessage(cgmsg)
 		plugin.KafkaHandle(tbmsg)
 	}
 }

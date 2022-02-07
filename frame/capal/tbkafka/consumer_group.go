@@ -3,7 +3,6 @@ package tbkafka
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 	"time"
 
@@ -124,7 +123,7 @@ func (cg *ConsumerGroup) Add(topic string, group string,
 
 func (cg *ConsumerGroup) Del(topic string, group string) error {
 	key := topic + group
-	v, ok := cg.tps.Load(key)
+	v, ok := cg.tps.LoadAndDelete(key)
 	if !ok {
 		return errors.New("topic not exist")
 	}
@@ -137,17 +136,18 @@ func (cg *ConsumerGroup) Output() <-chan *ConsumerGroupMessage {
 }
 
 func (cg *ConsumerGroup) Fini() {
+	cg.quit = true
 	cg.tps.Range(func(key, value interface{}) bool {
 		w := value.(*workerCG)
 		w.fini()
 		return true
 	})
 	close(cg.outputCh)
-	cg.quit = true
 	return
 }
 
 type workerCG struct {
+	quit     bool
 	cg       *ConsumerGroup
 	csr      sarama.ConsumerGroup
 	topic    string
@@ -171,13 +171,14 @@ func (w *workerCG) spawn() error {
 		return err
 	}
 	w.csr = csr
+	w.quit = false
 	go w.work()
 	go w.consume()
 	return nil
 }
 
 func (w *workerCG) consume() {
-	for !w.cg.quit {
+	for !w.cg.quit && !w.quit {
 		err := w.csr.Consume(context.TODO(), []string{w.topic}, w)
 		if err != nil && w.cg.failedCh != nil {
 			w.cg.failedCh <- &ConsumerGroupMessage{
@@ -190,7 +191,7 @@ func (w *workerCG) consume() {
 }
 
 func (w *workerCG) work() {
-	for !w.cg.quit && w.cg.failedCh != nil {
+	for !w.cg.quit && !w.quit && w.cg.failedCh != nil {
 		for e := range w.csr.Errors() {
 			w.cg.failedCh <- &ConsumerGroupMessage{
 				Topic:         w.topic,
@@ -233,13 +234,15 @@ func (w *workerCG) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.C
 			sess.MarkMessage(msg, "synced")
 
 		case <-sess.Context().Done():
-			log.Println("mkafka sess context done!")
-			return nil
+			return sess.Context().Err()
 		}
 	}
 	return nil
 }
 
 func (w *workerCG) fini() {
-	w.csr.Close()
+	w.quit = true
+	if w.csr != nil {
+		w.csr.Close()
+	}
 }
