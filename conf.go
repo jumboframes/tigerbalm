@@ -27,6 +27,7 @@ type Config struct {
 	} `yaml:"web"`
 
 	Kafka struct {
+		Enable   bool     `yaml:"enable"`
 		Brokers  []string `yaml:"brokers"`
 		Consumer struct { //dumped from sarama
 			Group struct {
@@ -47,6 +48,7 @@ type Config struct {
 		Path      string `yaml:"path"`
 		WatchPath bool   `yaml:"watch_path"`
 		Log       struct {
+			Enable   bool   `yaml:"enable"`
 			Path     string `yaml:"path"`
 			Level    string `yaml:"level"`
 			MaxSize  int64  `yaml:"maxsize"`

@@ -28,9 +28,6 @@ type Plugin struct {
 	name    string
 	content []byte
 
-	// conf
-	config *tigerbalm.Config
-
 	// capals
 	capal *capal.Capal
 	ctx   *capal.PluginContext
@@ -47,13 +44,12 @@ type Plugin struct {
 // plugin uses name as runtime context indexing for looking-up resources,
 // like logging instance. the changing of name must then recreate ctx.
 func NewPlugin(name string, content []byte,
-	cpl *capal.Capal, config *tigerbalm.Config) (*Plugin, error) {
+	cpl *capal.Capal) (*Plugin, error) {
 
 	plugin := &Plugin{
 		name:    name,
 		content: content,
 		capal:   cpl,
-		config:  config,
 		ctx:     &capal.PluginContext{name},
 	}
 	err := plugin.newLog()
@@ -67,17 +63,17 @@ func (plugin *Plugin) newLog() error {
 	if plugin.rotateLog != nil {
 		plugin.rotateLog.Close()
 	}
-	level, err := tblog.ParseLevel(plugin.config.Plugin.Log.Level)
+	level, err := tblog.ParseLevel(tigerbalm.Conf.Plugin.Log.Level)
 	if err != nil {
 		tblog.Errorf("newlog | tblog parse level: %s err: %s",
-			plugin.config.Plugin.Log.Level, err)
+			tigerbalm.Conf.Plugin.Log.Level, err)
 		return err
 	}
-	logFile := filepath.Join(plugin.config.Plugin.Log.Path,
+	logFile := filepath.Join(tigerbalm.Conf.Plugin.Log.Path,
 		plugin.name, plugin.name+ExtLog)
 	rotateLog, err := rotatelogs.New(logFile,
-		rotatelogs.WithRotationCount(plugin.config.Plugin.Log.MaxRolls),
-		rotatelogs.WithRotationSize(plugin.config.Plugin.Log.MaxSize))
+		rotatelogs.WithRotationCount(tigerbalm.Conf.Plugin.Log.MaxRolls),
+		rotatelogs.WithRotationSize(tigerbalm.Conf.Plugin.Log.MaxSize))
 	if err != nil {
 		tblog.Errorf("newplog | rotate log: %s new err: %s",
 			logFile, err)

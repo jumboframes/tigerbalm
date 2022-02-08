@@ -24,7 +24,6 @@ const (
 )
 
 type Frame struct {
-	config        *tigerbalm.Config
 	namePlugins   map[string]*Plugin
 	httpPlugins   map[string]*Plugin
 	kafkaPlugins  map[string]*Plugin
@@ -35,25 +34,26 @@ type Frame struct {
 	capal *capal.Capal
 }
 
-func NewFrame(bus bus.Bus, config *tigerbalm.Config) (*Frame, error) {
+func NewFrame(bus bus.Bus) (*Frame, error) {
 	frame := &Frame{
-		httpPlugins:  make(map[string]*Plugin),
-		kafkaPlugins: make(map[string]*Plugin),
-		namePlugins:  make(map[string]*Plugin),
-		bus:          bus,
-		config:       config,
+		httpPlugins: make(map[string]*Plugin),
+		namePlugins: make(map[string]*Plugin),
+		bus:         bus,
+	}
+	if tigerbalm.Conf.Kafka.Enable {
+		frame.kafkaPlugins = make(map[string]*Plugin)
 	}
 	frame.capal = capal.NewCapal(frame.httpFactory, frame.logFactory)
 	err := frame.loadPlugins()
 	if err != nil {
 		return nil, err
 	}
-	if config.Plugin.WatchPath {
+	if tigerbalm.Conf.Plugin.WatchPath {
 		frame.pluginWatcher, err = fsnotify.NewWatcher()
 		if err != nil {
 			return nil, err
 		}
-		err = frame.pluginWatcher.Add(config.Plugin.Path)
+		err = frame.pluginWatcher.Add(tigerbalm.Conf.Plugin.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +120,7 @@ func (frame *Frame) watchPlugin() {
 }
 
 func (frame *Frame) Fini() {
-	if frame.config.Plugin.WatchPath {
+	if tigerbalm.Conf.Plugin.WatchPath {
 		frame.pluginWatcher.Close()
 	}
 	frame.pluginMux.RLock()
@@ -150,7 +150,7 @@ func (frame *Frame) logFactory(ctx *capal.PluginContext) *tblog.TbLog {
 }
 
 func (frame *Frame) loadPlugins() error {
-	files, err := ioutil.ReadDir(frame.config.Plugin.Path)
+	files, err := ioutil.ReadDir(tigerbalm.Conf.Plugin.Path)
 	if err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func (frame *Frame) unloadPlugins() error {
 
 func (frame *Frame) loadPlugin(file string) error {
 	name := strings.TrimSuffix(file, ExtJS)
-	pluginName, err := filepath.Abs(filepath.Join(frame.config.Plugin.Path, file))
+	pluginName, err := filepath.Abs(filepath.Join(tigerbalm.Conf.Plugin.Path, file))
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func (frame *Frame) loadPlugin(file string) error {
 		return err
 	}
 	// new plugin
-	plugin, err := NewPlugin(name, pluginCnt, frame.capal, frame.config)
+	plugin, err := NewPlugin(name, pluginCnt, frame.capal)
 	if err != nil {
 		tblog.Errorf("frame::loadplugin | new plugin: %s err: %s",
 			pluginName, err)
@@ -233,7 +233,7 @@ func (frame *Frame) unloadPlugin(file string) error {
 
 func (frame *Frame) reloadPlugin(file string) error {
 	name := strings.TrimSuffix(file, ExtJS)
-	pluginName := filepath.Join(frame.config.Plugin.Path, file)
+	pluginName := filepath.Join(tigerbalm.Conf.Plugin.Path, file)
 	pluginCnt, err := ioutil.ReadFile(pluginName)
 	if err != nil {
 		tblog.Errorf("frame::reloadplugin | read plugin: %s err: %s",
@@ -289,7 +289,7 @@ func (frame *Frame) unregisterHttp(plugin *Plugin) {
 }
 
 func (frame *Frame) registerKafka(plugin *Plugin) {
-	if !plugin.Kafka() {
+	if !plugin.Kafka() || !tigerbalm.Conf.Kafka.Enable {
 		return
 	}
 	tp := plugin.KafkaTopic() + plugin.KafkaGroup()
@@ -303,7 +303,7 @@ func (frame *Frame) registerKafka(plugin *Plugin) {
 }
 
 func (frame *Frame) unregisterKafka(plugin *Plugin) {
-	if !plugin.Kafka() {
+	if !plugin.Kafka() || !tigerbalm.Conf.Kafka.Enable {
 		return
 	}
 	tp := plugin.KafkaTopic() + plugin.KafkaGroup()

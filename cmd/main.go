@@ -25,6 +25,9 @@ func main() {
                  TigerBalm Starts
 ==================================================`)
 
+	// bus, io总线
+	bus := bus.NewSlotBus()
+
 	// web
 	web, err := web.NewWeb()
 	if err != nil {
@@ -33,22 +36,21 @@ func main() {
 	}
 	defer web.Fini()
 	go web.Serve(ctx)
+	bus.AddSlot(web)
 
 	// kafka
-	consumer, err := kafka.NewConsumer()
-	if err != nil {
-		tblog.Errorf("main | new consumer err: %s", err)
-		return
+	if tigerbalm.Conf.Kafka.Enable {
+		consumer, err := kafka.NewConsumer()
+		if err != nil {
+			tblog.Errorf("main | new consumer err: %s", err)
+			return
+		}
+		defer consumer.Fini()
+		bus.AddSlot(consumer)
 	}
-	defer consumer.Fini()
-
-	// bus
-	bus := bus.NewSlotBus()
-	bus.AddSlot(web)
-	bus.AddSlot(consumer)
 
 	// frame
-	frame, err := frame.NewFrame(bus, tigerbalm.Conf)
+	frame, err := frame.NewFrame(bus)
 	if err != nil {
 		tblog.Errorf("main | new frame err: %s", err)
 		return

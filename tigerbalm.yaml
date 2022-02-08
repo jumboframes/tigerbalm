@@ -2,6 +2,7 @@ web:
   addr: 127.0.0.1:1202
 
 kafka:
+  enable: true
   brokers:
     - 192.168.111.103:9092
   consumer:
@@ -17,6 +18,7 @@ plugin:
   path: ./js
   watch_path: false
   log:
+    enable: true
     path: "/tmp/tigerbalm/log/plugin"
     level: "debug"
     maxsize: 10485760
